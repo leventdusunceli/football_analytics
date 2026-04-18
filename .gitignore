@@ -214,6 +214,6 @@ __marimo__/
 # Data files (can be large)
 *.csv
 *.json
-data/
+#data/
 
 .mypy_cache/
