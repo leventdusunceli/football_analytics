@@ -214,6 +214,7 @@ __marimo__/
 # Data files (can be large)
 *.csv
 *.json
-#data/
+*.xlsx
+*.parquet
 
 .mypy_cache/
