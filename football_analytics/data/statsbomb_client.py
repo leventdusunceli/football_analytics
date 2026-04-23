@@ -64,15 +64,9 @@ class StatsBombClient:
         
     def get_events(self,match_id:int)-> pd.DataFrame: 
         """
-        Fetch all events for a specific match. Events include passing events (Pass), 
-        shooting events (Shot), dribbles (Dribble), tackles (Tackle), interceptions (Interception),
-        clearances (Clearance), goalkeeper actions (Goal Keeper), pressures applied 
-        to opponents (Pressure), ball receipts (Ball Receipt), carries (Carry), 
-        fouls committed and won (Foul Committed, Foul Won), duels (Duel), blocks (Block), 
-        ball recoveries (Ball Recovery), and administrative events like (Starting XI), 
-        (Half Start), (Half End), and (Substitution). get_events is the foundation that all the 
-        other methods build on — it's the raw complete picture of everything that happened in a match, 
-        and we filter it down to specific event types in each stat method.
+        Fetch all on-ball events for a specific match (passes, shots, tackles,
+        dribbles, carries, fouls, duels and more). Used as the foundation by
+        all other stat methods which filter this data down to specific event types.
 
         Args:
             match_id: StatsBomb match ID.
