@@ -218,3 +218,4 @@ __marimo__/
 *.parquet
 
 .mypy_cache/
+.python-version

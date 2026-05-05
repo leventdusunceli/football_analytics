@@ -105,7 +105,9 @@ class StatsBombClient:
             raise DataNotFoundError(f"No shots found for match {match_id}.")
         return shots[["player", "team", "minute", "shot_statsbomb_xg", "shot_outcome"]]
 
-    ## Player stats - match level ##
+    # -----------------------------------------------------------------------#
+    ## Player stats - match level                                           ##
+    # -----------------------------------------------------------------------#
 
     def get_player_shooting_match(self, match_id):
         """
@@ -177,7 +179,8 @@ class StatsBombClient:
             (stats["passes_completed"] / stats["passes"]) * 100
         ).round(1)
         return stats
-    def get_player_defensive_match(self,match_id:int)->pd.DataFrame:
+
+    def get_player_defensive_match(self, match_id: int) -> pd.DataFrame:
         """
         Fetch defensive stats per player for a specific match.
 
@@ -193,30 +196,36 @@ class StatsBombClient:
         """
         events = self.get_events(match_id)
         tackles = (
-            events[events['type']=='Tackle'].groupby(['player','team']).
-            size().reset_index()
+            events[events["type"] == "Tackle"]
+            .groupby(["player", "team"])
+            .size()
+            .reset_index()
         )
         interceptions = (
-            events[events['type']=='Interception'].groupby(['player','team']).
-            size().reset_index()
+            events[events["type"] == "Interception"]
+            .groupby(["player", "team"])
+            .size()
+            .reset_index()
         )
         clearances = (
-            events[events['type']=='Clearance'].groupby(['player','team']).
-            size().reset_index()
+            events[events["type"] == "Clearance"]
+            .groupby(["player", "team"])
+            .size()
+            .reset_index()
         )
 
-        stats = tackles.merge(interceptions,on=['player','team'], how = 'outer')
-        stats = stats.merge(clearances,on=['player','team'], how = 'outer')
+        stats = tackles.merge(interceptions, on=["player", "team"], how="outer")
+        stats = stats.merge(clearances, on=["player", "team"], how="outer")
         stats = stats.fillna(0)
 
-        for col in ['tackles','interceptions','clearances']:
+        for col in ["tackles", "interceptions", "clearances"]:
             stats[col] = stats[col].astype(int)
 
-        if stats.empty: 
+        if stats.empty:
             raise DataNotFoundError(f"No defensive data found for match {match_id}")
-        return stats 
-    
-    def get_player_goals_assists_match(self,match_id:int)-> pd.DataFrame: 
+        return stats
+
+    def get_player_goals_assists_match(self, match_id: int) -> pd.DataFrame:
         """
         Fetch goals and assists per player for a specific match.
 
@@ -233,21 +242,197 @@ class StatsBombClient:
         events = self.get_events(match_id)
 
         goals = (
-            shots[shots['shot_outcome']=='Goal'].groupby(['player','team']).
-            size().reset_index(name='goals')
+            shots[shots["shot_outcome"] == "Goal"]
+            .groupby(["player", "team"])
+            .size()
+            .reset_index(name="goals")
         )
         assists = (
-            events[events['pass_goal_assist']==True].groupby(['player','team']).
-            size().reset_index(name='assists')
+            events[events["pass_goal_assist"]]
+            .groupby(["player", "team"])
+            .size()
+            .reset_index(name="assists")
         )
 
-        stats = goals.merge(assists, on=['player','team'],how='outer')
+        stats = goals.merge(assists, on=["player", "team"], how="outer")
         stats = stats.fillna(0)
 
-        for col in ['goals','assists']: 
+        for col in ["goals", "assists"]:
             stats[col] = stats[col].astype(int)
 
         if stats.empty:
             raise DataNotFoundError(f"No goals or assists found for match {match_id}")
         return stats
 
+    # -----------------------------------------------------------------------#
+    ## Player stats - season level                                           ##
+    # -----------------------------------------------------------------------#
+
+    def _aggregate_season_stats(
+        self, competition_id: int, season_id: int, match_stat_method
+    ) -> pd.DataFrame:
+        """
+        Internal helper that iterates over every match in a season,
+        calls the given match-level stat method, and aggregates the results.
+
+        Args:
+            competition_id: StatsBomb competition ID.
+            season_id: StatsBomb season ID.
+            match_stat_method: A bound match-level stat method from this class
+            e.g. self.get_player_shooting_match.
+
+        Returns:
+            Aggregated DataFrame across all matches in the season.
+
+        Raises:
+            DataNotFoundError: If no matches are found for the season.
+        """
+        matches = self.get_matches(competition_id, season_id)
+        all_stats = []
+        for match_id in matches["match_id"]:
+            try:
+                stats = match_stat_method(match_id)
+                all_stats.append(stats)
+            except DataNotFoundError:
+                continue  # continue allows us to compensate for matches that have missing data w/out crashing
+
+        if not all_stats:
+            raise DataNotFoundError(
+                f"no stats found for competition {competition_id},season {season_id}"
+            )
+        return pd.concat(all_stats, ignore_index=True)
+
+    def get_player_shooting_season(
+        self, competition_id: int, season_id: int
+    ) -> pd.DataFrame:
+        """
+        Fetch aggregated shooting stats per player across a full season.
+
+        Args:
+            competition_id: StatsBomb competition ID.
+            season_id: StatsBomb season ID.
+
+        Returns:
+            DataFrame with columns: player, team, shots, shots_on_target,
+            goals, total_xg, xg_per_shot.
+
+        Raises:
+            DataNotFoundError: If no data is found for the season.
+        """
+        raw_data = self._aggregate_season_stats(
+            competition_id, season_id, self.get_player_shooting_match
+        )
+        season_stats = (
+            raw_data.groupby(["player", "team"])
+            .agg(
+                shots=("shots", "sum"),
+                shots_on_target=("shots_on_target", "sum"),
+                goals=("goals", "sum"),
+                total_xg=("total_xg", "sum"),
+            )
+            .reset_index()
+        )
+        season_stats["xg_per_shot"] = (
+            season_stats["total_xg"] / season_stats["shots"]
+        ).round(3)
+        season_stats["total_xg"] = season_stats["total_xg"].round(3)
+        return season_stats.sort_values("total_xg", ascending=False)
+
+    def get_player_passing_season(
+        self, competition_id: int, season_id: int
+    ) -> pd.DataFrame:
+        """
+        Fetch aggregated passing stats per player across a full season.
+
+        Args:
+            competition_id: StatsBomb competition ID.
+            season_id: StatsBomb season ID.
+
+        Returns:
+            DataFrame with columns: player, team, passes, passes_completed,
+            completion_rate, progressive_passes.
+
+        Raises:
+            DataNotFoundError: If no data is found for the season.
+        """
+        raw_data = self._aggregate_season_stats(
+            competition_id, season_id, self.get_player_passing_match
+        )
+        season_stats = (
+            raw_data.groupby(["player", "team"])
+            .agg(
+                passes=("passes", "sum"),
+                passes_completed=("passes_completed", "sum"),
+                progressive_passes=("progressive_passes", "sum"),
+            )
+            .reset_index()
+        )
+        season_stats["completion_rate"] = (
+            (season_stats["passes_completed"] / season_stats["passes"]) * 100
+        ).round(1)
+        return season_stats.sort_values("passes", ascending=False)
+
+    def get_player_defensive_season(
+        self,
+        competition_id: int,
+        season_id: int,
+    ) -> pd.DataFrame:
+        """
+        Fetch aggregated defensive stats per player across a full season.
+
+        Args:
+            competition_id: StatsBomb competition ID.
+            season_id: StatsBomb season ID.
+
+        Returns:
+            DataFrame with columns: player, team, tackles, interceptions,
+            clearances.
+
+        Raises:
+            DataNotFoundError: If no data is found for the season.
+        """
+        raw_data = self._aggregate_season_stats(
+            competition_id, season_id, self.get_player_defensive_match
+        )
+        season_stats = (
+            raw_data.groupby(["player", "team"])
+            .agg(
+                tackles=("tackles", "sum"),
+                interceptions=("interceptions", "sum"),
+                clearances=("clearances", "sum"),
+            )
+            .reset_index()
+        )
+        return season_stats.sort_values("tackles", ascending=False)
+
+    def get_player_goal_assists_season(
+        self,
+        competition_id: int,
+        season_id: int,
+    ) -> pd.DataFrame:
+        """
+        Fetch aggregated goals and assists per player across a full season.
+
+        Args:
+            competition_id: StatsBomb competition ID.
+            season_id: StatsBomb season ID.
+
+        Returns:
+            DataFrame with columns: player, team, goals, assists.
+
+        Raises:
+            DataNotFoundError: If no data is found for the season.
+        """
+        raw_data = self._aggregate_season_stats(
+            competition_id, season_id, self.get_player_goal_assists_match
+        )
+
+        season_stats = (
+            raw_data.groupby(["player", "team"])
+            .agg(
+                goals=("goals", "sum"),
+                assists=("assists", "sum"),
+            )
+            .reset_index()
+        )
+        return season_stats.sort_values("goals", ascending=False)
