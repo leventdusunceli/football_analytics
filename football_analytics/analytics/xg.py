@@ -104,7 +104,8 @@ def get_xg_overperformance(
         player scored more than xG expected (overperforming).
 
     Raises:
-        DataNotFoundError: If the shots DataFrame is empty or no players meet the minimum shots threshold.
+        DataNotFoundError: If the shots DataFrame is empty or no players meet the minimum 
+        shots threshold.
     """
     if shots.empty:
         raise DataNotFoundError("shots DataFrame is empty.")

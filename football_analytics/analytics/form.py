@@ -74,7 +74,7 @@ def _points_from_result(result: str) -> int:
     return {"W": 3, "D": 1, "L": 0}.get(result, 0)
 
 
-def get_recent_from(raw_matches: dict, team: str, last_n: int = 5) -> pd.DataFrame:
+def get_recent_form(raw_matches: dict, team: str, last_n: int = 5) -> pd.DataFrame:
     """
     Calculate a team's recent form over their last N matches
 
