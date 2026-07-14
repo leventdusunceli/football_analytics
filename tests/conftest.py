@@ -67,9 +67,7 @@ def sample_standings_df():
     )
 
 
-pytest.fixture
-
-
+@pytest.fixture
 def sample_team_xg():
     """Fake team xG DataFrame for standings enrichment tests."""
     return pd.DataFrame(
