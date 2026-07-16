@@ -62,7 +62,7 @@ def _parse_matches(raw_matches: dict, team: str) -> pd.DataFrame:
         lambda row: (
             "W"
             if row["goals_for"] > row["goals_against"]
-            else ("D" if row["goals_for"] == row["goal_against"] else "L")
+            else ("D" if row["goals_for"] == row["goals_against"] else "L")
         ),
         axis=1,
     )

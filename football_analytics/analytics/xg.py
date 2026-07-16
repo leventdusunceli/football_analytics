@@ -28,14 +28,18 @@ def get_match_xg_summary(shots: pd.DataFrame) -> pd.DataFrame:
     if shots.empty:
         raise DataNotFoundError("Shots DataFrame is empty")
 
-    summary = shots.groupby("team").agg(
-        total_shots=("shots_statsbomb_xg", "count"),
-        shots_on_target=(
-            "shot_outcome",
-            lambda x: ((x == "Goal") | (x == "Saved")).sum(),
-        ),
-        total_xg=("shot_statsbomb_xg", "sum"),
-        goals=("shot_outcome", lambda x: (x == "Goal").sum()),
+    summary = (
+        shots.groupby("team")
+        .agg(
+            total_shots=("shot_statsbomb_xg", "count"),
+            shots_on_target=(
+                "shot_outcome",
+                lambda x: ((x == "Goal") | (x == "Saved")).sum(),
+            ),
+            total_xg=("shot_statsbomb_xg", "sum"),
+            goals=("shot_outcome", lambda x: (x == "Goal").sum()),
+        )
+        .reset_index()
     )
     summary["total_xg"] = summary["total_xg"].round(3)
     summary["xg_difference"] = (summary["goals"] - summary["total_xg"]).round(3)
@@ -104,9 +108,9 @@ def get_xg_overperformance(
         player scored more than xG expected (overperforming).
 
     Raises:
-        DataNotFoundError: If the shots DataFrame is empty or no players meet the minimum 
+        DataNotFoundError: If the shots DataFrame is empty or no players meet the minimum
         shots threshold.
-    """
+    """  # noqa: E501
     if shots.empty:
         raise DataNotFoundError("shots DataFrame is empty.")
 
@@ -147,9 +151,17 @@ def get_xg_overperformance(
     stats["xg_difference"] = (stats["goals"] - stats["total_xg"]).round(3)
 
     return (
-        stats[["player", "team", "total_shots", "shots_on_target",
-            "goals", "total_xg", "xg_difference"]]
+        stats[
+            [
+                "player",
+                "team",
+                "total_shots",
+                "shots_on_target",
+                "goals",
+                "total_xg",
+                "xg_difference",
+            ]
+        ]
         .sort_values("xg_difference", ascending=False)
         .reset_index(drop=True)
     )
-

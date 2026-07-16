@@ -80,10 +80,10 @@ def get_expected_vs_actual(
         )
 
     merged = merged.sort_values("total_xg", ascending=False).reset_index(drop=True)
-    merged["xg_ranking"] = merged.index + 1
+    merged["xg_position"] = merged.index + 1
     merged = merged.sort_values("position").reset_index(drop=True)
-    merged["position_difference"] = merged["xg_ranking"] - merged["position"]
+    merged["position_difference"] = merged["xg_position"] - merged["position"]
 
-    return merged.rename(columns={"position": "season_standing"})[
-        ["team", "actual_position", "xg_ranking", "position_difference"]
+    return merged.rename(columns={"position": "actual_position"})[
+        ["team", "actual_position", "xg_position", "position_difference"]
     ]
