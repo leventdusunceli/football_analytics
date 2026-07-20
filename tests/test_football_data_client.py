@@ -1,7 +1,9 @@
 """Tests for football-data.org API (football__data_client.py)"""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from football_analytics.data.football_data_client import FootballDataClient
 from football_analytics.utils.exceptions import APIError, AuthenticationError
 
