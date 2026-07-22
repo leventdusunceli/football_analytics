@@ -123,7 +123,7 @@ class StatsBombClient:
         Raises:
             DataNotFoundError: If no shot data is found for the given match.
         """
-        shots = self.get_shots()
+        shots = self.get_shots(match_id)
         stats = (
             shots.groupby(["player", "team"])
             .agg(
@@ -195,34 +195,26 @@ class StatsBombClient:
             DataNotFoundError: If no defensive data found for the given match.
         """
         events = self.get_events(match_id)
-        tackles = (
-            events[events["type"] == "Tackle"]
-            .groupby(["player", "team"])
-            .size()
-            .reset_index()
-        )
-        interceptions = (
-            events[events["type"] == "Interception"]
-            .groupby(["player", "team"])
-            .size()
-            .reset_index()
-        )
-        clearances = (
-            events[events["type"] == "Clearance"]
-            .groupby(["player", "team"])
-            .size()
-            .reset_index()
-        )
 
-        stats = tackles.merge(interceptions, on=["player", "team"], how="outer")
-        stats = stats.merge(clearances, on=["player", "team"], how="outer")
-        stats = stats.fillna(0)
+        def _count_events(event_type: str, col_name: str) -> pd.DataFrame:
+            filtered = events[events["type"] == event_type]
+            if filtered.empty:
+                return pd.DataFrame(columns=["player", "team", col_name])
+            return filtered.groupby(["player", "team"]).size().reset_index(name=col_name)
+
+        stats = (
+            _count_events("Tackle", "tackles")
+            .merge(_count_events("Interception", "interceptions"), on=["player", "team"], how="outer")
+            .merge(_count_events("Clearance", "clearances"), on=["player", "team"], how="outer")
+            .fillna(0)
+        )
 
         for col in ["tackles", "interceptions", "clearances"]:
             stats[col] = stats[col].astype(int)
 
         if stats.empty:
-            raise DataNotFoundError(f"No defensive data found for match {match_id}")
+            raise DataNotFoundError(f"No defensive data found for match {match_id}.")
+
         return stats
 
     def get_player_goals_assists_match(self, match_id: int) -> pd.DataFrame:
