@@ -218,19 +218,21 @@ class StatsBombClient:
             if filtered.empty:
                 return pd.DataFrame(columns=["player", "team", "position", col_name])
             return (
-                filtered.groupby(["player", "team"]).size().reset_index(name=col_name)
+                filtered.groupby(["player", "team", "position"])
+                .size()
+                .reset_index(name=col_name)
             )
 
         stats = (
             _count_events("Tackle", "tackles")
             .merge(
                 _count_events("Interception", "interceptions"),
-                on=["player", "team"],
+                on=["player", "team", "position"],
                 how="outer",
             )
             .merge(
                 _count_events("Clearance", "clearances"),
-                on=["player", "team"],
+                on=["player", "team", "position"],
                 how="outer",
             )
             .fillna(0)
