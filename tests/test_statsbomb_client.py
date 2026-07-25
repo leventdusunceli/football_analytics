@@ -36,6 +36,13 @@ def sample_events_df():
         {
             "type": ["Shot", "Pass", "Shot", "Tackle", "Shot"],
             "player": ["Saka", "Odegaard", "Havertz", "White", "Palmer"],
+            "position": [
+                "Right Wing",
+                "Center Midfield",
+                "Center Forward",
+                "Right Back",
+                "Center Forward",
+            ],
             "team": ["Arsenal", "Arsenal", "Arsenal", "Arsenal", "Chelsea"],
             "minute": [12, 23, 45, 67, 88],
             "shot_statsbomb_xg": [0.342, None, 0.521, None, 0.231],

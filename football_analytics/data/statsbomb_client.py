@@ -77,7 +77,8 @@ class StatsBombClient:
 
         Returns:
             DataFrame of all events in the match, with players shown under their known
-            names where available (e.g. Luis Suarez instead of Luis Alberto Suárez Díaz)
+            names and their positions where available (e.g. Luis Suarez instead of
+            Luis Alberto Suárez Díaz)
 
         Raises:
             DataNotFoundError: If no events are found for the given match.
@@ -88,6 +89,9 @@ class StatsBombClient:
 
         if "player_nickname" in events.columns:
             events["player"] == events["player_nickname"]
+
+        if "position" in events.columns:
+            events["position"] == events["position"].fillna("Unknown")
         return events
 
     def get_shots(self, match_id: int) -> pd.DataFrame:
@@ -107,7 +111,16 @@ class StatsBombClient:
         shots = events[events["type"] == "Shot"].copy()
         if shots.empty:
             raise DataNotFoundError(f"No shots found for match {match_id}.")
-        return shots[["player", "team", "minute", "shot_statsbomb_xg", "shot_outcome"]]
+        return shots[
+            [
+                "player",
+                "team",
+                "position",
+                "minute",
+                "shot_statsbomb_xg",
+                "shot_outcome",
+            ]
+        ]
 
     # -----------------------------------------------------------------------#
     ## Player stats - match level                                           ##
@@ -129,7 +142,7 @@ class StatsBombClient:
         """
         shots = self.get_shots(match_id)
         stats = (
-            shots.groupby(["player", "team"])
+            shots.groupby(["player", "team", "position"])
             .agg(
                 shots=("shot_statsbomb_xg", "count"),
                 shots_on_target=(
@@ -165,7 +178,7 @@ class StatsBombClient:
             raise DataNotFoundError(f"No pass data found for match{match_id}")
 
         stats = (
-            passes.groupby(["player", "team"])
+            passes.groupby(["player", "team", "position"])
             .agg(
                 passes=("type", "count"),
                 # StatsBomb marks completed passes as NaN in pass_outcome.
@@ -203,7 +216,7 @@ class StatsBombClient:
         def _count_events(event_type: str, col_name: str) -> pd.DataFrame:
             filtered = events[events["type"] == event_type]
             if filtered.empty:
-                return pd.DataFrame(columns=["player", "team", col_name])
+                return pd.DataFrame(columns=["player", "team", "position", col_name])
             return (
                 filtered.groupby(["player", "team"]).size().reset_index(name=col_name)
             )
@@ -249,18 +262,18 @@ class StatsBombClient:
 
         goals = (
             shots[shots["shot_outcome"] == "Goal"]
-            .groupby(["player", "team"])
+            .groupby(["player", "team", "position"])
             .size()
             .reset_index(name="goals")
         )
         assists = (
-            events[events["pass_goal_assist"].fillna(False) == True]
-            .groupby(["player", "team"])
+            events[events["pass_goal_assist"].fillna(False) == True]  # noqa: E712
+            .groupby(["player", "team", "position"])
             .size()
             .reset_index(name="assists")
         )
 
-        stats = goals.merge(assists, on=["player", "team"], how="outer")
+        stats = goals.merge(assists, on=["player", "team", "position"], how="outer")
         stats = stats.fillna(0)
 
         for col in ["goals", "assists"]:

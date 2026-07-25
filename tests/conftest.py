@@ -122,6 +122,13 @@ def sample_player_stats():
         {
             "player": ["Saka", "Odegaard", "Havertz", "Palmer", "Jackson"],
             "team": ["Arsenal", "Arsenal", "Arsenal", "Chelsea", "Chelsea"],
+            "position": [
+                "Right Wing",
+                "Center Midfield",
+                "Center Forward",
+                "Right Back",
+                "Center Forward",
+            ],
             "goals": [15, 8, 12, 18, 6],
             "assists": [10, 12, 5, 7, 3],
             "total_xg": [12.3, 7.1, 10.8, 14.2, 5.9],
