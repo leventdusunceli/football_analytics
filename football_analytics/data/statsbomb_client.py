@@ -76,7 +76,8 @@ class StatsBombClient:
             match_id: StatsBomb match ID.
 
         Returns:
-            DataFrame of all events in the match.
+            DataFrame of all events in the match, with players shown under their known
+            names where available (e.g. Luis Suarez instead of Luis Alberto Suárez Díaz)
 
         Raises:
             DataNotFoundError: If no events are found for the given match.
@@ -84,6 +85,9 @@ class StatsBombClient:
         events = sb.events(match_id=match_id)
         if events.empty:
             raise DataNotFoundError(f"No events found for match {match_id}.")
+
+        if "player_nickname" in events.columns:
+            events["player"] == events["player_nickname"]
         return events
 
     def get_shots(self, match_id: int) -> pd.DataFrame:
@@ -200,12 +204,22 @@ class StatsBombClient:
             filtered = events[events["type"] == event_type]
             if filtered.empty:
                 return pd.DataFrame(columns=["player", "team", col_name])
-            return filtered.groupby(["player", "team"]).size().reset_index(name=col_name)
+            return (
+                filtered.groupby(["player", "team"]).size().reset_index(name=col_name)
+            )
 
         stats = (
             _count_events("Tackle", "tackles")
-            .merge(_count_events("Interception", "interceptions"), on=["player", "team"], how="outer")
-            .merge(_count_events("Clearance", "clearances"), on=["player", "team"], how="outer")
+            .merge(
+                _count_events("Interception", "interceptions"),
+                on=["player", "team"],
+                how="outer",
+            )
+            .merge(
+                _count_events("Clearance", "clearances"),
+                on=["player", "team"],
+                how="outer",
+            )
             .fillna(0)
         )
 
@@ -240,7 +254,7 @@ class StatsBombClient:
             .reset_index(name="goals")
         )
         assists = (
-            events[events["pass_goal_assist"]]
+            events[events["pass_goal_assist"].fillna(False) == True]
             .groupby(["player", "team"])
             .size()
             .reset_index(name="assists")

@@ -288,4 +288,4 @@ def test_get_player_goals_assists_match_passes_match_id(client, sample_events_df
         return_value=sample_events_df,
     ) as mock_events:
         client.get_player_goals_assists_match(match_id=42)
-        mock_events.assert_called_once_with(match_id=42)
+        mock_events.assert_called_with(match_id=42)

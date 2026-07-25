@@ -219,3 +219,5 @@ __marimo__/
 
 .mypy_cache/
 .python-version
+
+notes.md 
