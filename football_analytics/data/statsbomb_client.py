@@ -55,9 +55,11 @@ class StatsBombClient:
             )
 
         if team:
-            matches = matches[
-                (matches["home_team"] == team) | (matches["away_team"] == team)
-            ].copy()
+            matches = (
+                matches[(matches["home_team"] == team) | (matches["away_team"] == team)]
+                .sort_values(by=["match_week"])
+                .copy()
+            )
             if matches.empty:
                 raise DataNotFoundError(
                     f"No matches found for team '{team} in competition "
