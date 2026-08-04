@@ -90,10 +90,10 @@ class StatsBombClient:
             raise DataNotFoundError(f"No events found for match {match_id}.")
 
         if "player_nickname" in events.columns:
-            events["player"] == events["player_nickname"]
+            events["player"] = events["player_nickname"]
 
         if "position" in events.columns:
-            events["position"] == events["position"].fillna("Unknown")
+            events["position"] = events["position"].fillna("Unknown")
         return events
 
     def get_shots(self, match_id: int) -> pd.DataFrame:
@@ -292,15 +292,20 @@ class StatsBombClient:
     # -----------------------------------------------------------------------#
 
     def _aggregate_season_stats(
-        self, competition_id: int, season_id: int, match_stat_method
+        self, competition_id: int, season_id: int, match_stat_method,
+        players: list[str] | None  = None 
     ) -> pd.DataFrame:
         """
         Internal helper that iterates over every match in a season,
         calls the given match-level stat method, and aggregates the results.
 
+        When player is provided, only matches where those players are featured are processed
         Args:
             competition_id: StatsBomb competition ID.
             season_id: StatsBomb season ID.
+            players: Optional list of exact player names to filter for.
+                    When provided only matches containing those players
+                    are loaded, skipping all irrelevant matches.
             match_stat_method: A bound match-level stat method from this class
             e.g. self.get_player_shooting_match.
 
@@ -311,6 +316,11 @@ class StatsBombClient:
             DataNotFoundError: If no matches are found for the season.
         """
         matches = self.get_matches(competition_id, season_id)
+        if players: 
+            # Filter matches to only those where our target players appeared 
+            # by using the .lineups() method from statsbombpy package 
+            sb.lineups 
+        
         all_stats = []
         for match_id in matches["match_id"]:
             try:
