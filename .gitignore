@@ -220,4 +220,7 @@ __marimo__/
 .mypy_cache/
 .python-version
 
-notes.md 
+notes.md
+
+# Claude Code project context (kept local, not published)
+CLAUDE.md 
