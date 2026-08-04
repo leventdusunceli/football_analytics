@@ -70,9 +70,9 @@ class StatsBombClient:
 
     def get_events(self, match_id: int) -> pd.DataFrame:
         """
-        Fetch all on-ball events for a specific match (passes, shots, tackles,
+        Fetch all on-ball events for a specific match. (passes, shots, tackles,
         dribbles, carries, fouls, duels and more). Used as the foundation by
-        all other stat methods which filter this data down to specific event types.
+        all other stat methods which filter this data down to specific event types
 
         Args:
             match_id: StatsBomb match ID.
@@ -89,11 +89,13 @@ class StatsBombClient:
         if events.empty:
             raise DataNotFoundError(f"No events found for match {match_id}.")
 
+        # fix: use assignment not comparison
         if "player_nickname" in events.columns:
-            events["player"] = events["player_nickname"]
+            events["player"] = events["player_nickname"].fillna(events["player"])
 
         if "position" in events.columns:
             events["position"] = events["position"].fillna("Unknown")
+
         return events
 
     def get_shots(self, match_id: int) -> pd.DataFrame:
@@ -292,51 +294,75 @@ class StatsBombClient:
     # -----------------------------------------------------------------------#
 
     def _aggregate_season_stats(
-        self, competition_id: int, season_id: int, match_stat_method,
-        players: list[str] | None  = None 
+        self,
+        competition_id: int,
+        season_id: int,
+        match_stat_method,
+        players: list[str] | None = None,
     ) -> pd.DataFrame:
         """
-        Internal helper that iterates over every match in a season,
-        calls the given match-level stat method, and aggregates the results.
+        Internal helper that iterates over matches in a season, calls the
+        given match-level stat method, and aggregates results.
 
-        When player is provided, only matches where those players are featured are processed
+        When players is provided, only matches where those players appeared
+        are processed — significantly reducing the number of API calls.
+
         Args:
             competition_id: StatsBomb competition ID.
             season_id: StatsBomb season ID.
+            match_stat_method: A bound match-level stat method from this class.
             players: Optional list of exact player names to filter for.
-                    When provided only matches containing those players
-                    are loaded, skipping all irrelevant matches.
-            match_stat_method: A bound match-level stat method from this class
-            e.g. self.get_player_shooting_match.
+                     When provided only matches containing those players
+                     are loaded, skipping all irrelevant matches.
 
         Returns:
-            Aggregated DataFrame across all matches in the season.
+            Aggregated DataFrame across relevant matches in the season.
 
         Raises:
-            DataNotFoundError: If no matches are found for the season.
+            DataNotFoundError: If no matches or stats are found.
         """
         matches = self.get_matches(competition_id, season_id)
-        if players: 
-            # Filter matches to only those where our target players appeared 
-            # by using the .lineups() method from statsbombpy package 
-            sb.lineups 
-        
+
+        if players:
+            # filter matches to only those where our target players appeared
+            # using the matches DataFrame lineup columns to avoid loading all events
+            player_match_ids = set()
+            for _, match in matches.iterrows():
+                lineups = sb.lineups(match_id=match["match_id"])
+                for team_lineup in lineups.values():
+                    if any(p in players for p in team_lineup["player_name"].values):
+                        player_match_ids.add(match["match_id"])
+                        break
+            matches = matches[matches["match_id"].isin(player_match_ids)]
+
+        if matches.empty:
+            raise DataNotFoundError(
+                f"No matches found for the given players in competition "
+                f"{competition_id}, season {season_id}."
+            )
+
         all_stats = []
         for match_id in matches["match_id"]:
             try:
                 stats = match_stat_method(match_id)
-                all_stats.append(stats)
+                if players:
+                    stats = stats[stats["player"].isin(players)]
+                if not stats.empty:
+                    all_stats.append(stats)
             except DataNotFoundError:
-                continue  # continue allows us to compensate for matches that have missing data w/out crashing
+                continue
 
         if not all_stats:
             raise DataNotFoundError(
-                f"no stats found for competition {competition_id},season {season_id}"
+                f"No stats found for competition {competition_id}, season {season_id}."
             )
         return pd.concat(all_stats, ignore_index=True)
 
     def get_player_shooting_season(
-        self, competition_id: int, season_id: int
+        self,
+        competition_id: int,
+        season_id: int,
+        players: list[str] | None = None,
     ) -> pd.DataFrame:
         """
         Fetch aggregated shooting stats per player across a full season.
@@ -344,19 +370,21 @@ class StatsBombClient:
         Args:
             competition_id: StatsBomb competition ID.
             season_id: StatsBomb season ID.
+            players: Optional list of exact player names to filter for.
+                     Significantly faster than loading all players.
 
         Returns:
-            DataFrame with columns: player, team, shots, shots_on_target,
-            goals, total_xg, xg_per_shot.
+            DataFrame with columns: player, team, position, shots,
+            shots_on_target, goals, total_xg, xg_per_shot.
 
         Raises:
             DataNotFoundError: If no data is found for the season.
         """
         raw_data = self._aggregate_season_stats(
-            competition_id, season_id, self.get_player_shooting_match
+            competition_id, season_id, self.get_player_shooting_match, players
         )
         season_stats = (
-            raw_data.groupby(["player", "team"])
+            raw_data.groupby(["player", "team", "position"])
             .agg(
                 shots=("shots", "sum"),
                 shots_on_target=("shots_on_target", "sum"),
@@ -372,7 +400,10 @@ class StatsBombClient:
         return season_stats.sort_values("total_xg", ascending=False)
 
     def get_player_passing_season(
-        self, competition_id: int, season_id: int
+        self,
+        competition_id: int,
+        season_id: int,
+        players: list[str] | None = None,
     ) -> pd.DataFrame:
         """
         Fetch aggregated passing stats per player across a full season.
@@ -380,19 +411,21 @@ class StatsBombClient:
         Args:
             competition_id: StatsBomb competition ID.
             season_id: StatsBomb season ID.
+            players: Optional list of exact player names to filter for.
+                     Significantly faster than loading all players.
 
         Returns:
-            DataFrame with columns: player, team, passes, passes_completed,
-            completion_rate, progressive_passes.
+            DataFrame with columns: player, team, position, passes,
+            passes_completed, completion_rate, progressive_passes.
 
         Raises:
             DataNotFoundError: If no data is found for the season.
         """
         raw_data = self._aggregate_season_stats(
-            competition_id, season_id, self.get_player_passing_match
+            competition_id, season_id, self.get_player_passing_match, players
         )
         season_stats = (
-            raw_data.groupby(["player", "team"])
+            raw_data.groupby(["player", "team", "position"])
             .agg(
                 passes=("passes", "sum"),
                 passes_completed=("passes_completed", "sum"),
@@ -409,6 +442,7 @@ class StatsBombClient:
         self,
         competition_id: int,
         season_id: int,
+        players: list[str] | None = None,
     ) -> pd.DataFrame:
         """
         Fetch aggregated defensive stats per player across a full season.
@@ -416,19 +450,21 @@ class StatsBombClient:
         Args:
             competition_id: StatsBomb competition ID.
             season_id: StatsBomb season ID.
+            players: Optional list of exact player names to filter for.
+                     Significantly faster than loading all players.
 
         Returns:
-            DataFrame with columns: player, team, tackles, interceptions,
-            clearances.
+            DataFrame with columns: player, team, position, tackles,
+            interceptions, clearances.
 
         Raises:
             DataNotFoundError: If no data is found for the season.
         """
         raw_data = self._aggregate_season_stats(
-            competition_id, season_id, self.get_player_defensive_match
+            competition_id, season_id, self.get_player_defensive_match, players
         )
         season_stats = (
-            raw_data.groupby(["player", "team"])
+            raw_data.groupby(["player", "team", "position"])
             .agg(
                 tackles=("tackles", "sum"),
                 interceptions=("interceptions", "sum"),
@@ -438,10 +474,11 @@ class StatsBombClient:
         )
         return season_stats.sort_values("tackles", ascending=False)
 
-    def get_player_goal_assists_season(
+    def get_player_goals_assists_season(
         self,
         competition_id: int,
         season_id: int,
+        players: list[str] | None = None,
     ) -> pd.DataFrame:
         """
         Fetch aggregated goals and assists per player across a full season.
@@ -449,19 +486,20 @@ class StatsBombClient:
         Args:
             competition_id: StatsBomb competition ID.
             season_id: StatsBomb season ID.
+            players: Optional list of exact player names to filter for.
+                     Significantly faster than loading all players.
 
         Returns:
-            DataFrame with columns: player, team, goals, assists.
+            DataFrame with columns: player, team, position, goals, assists.
 
         Raises:
             DataNotFoundError: If no data is found for the season.
         """
         raw_data = self._aggregate_season_stats(
-            competition_id, season_id, self.get_player_goal_assists_match
+            competition_id, season_id, self.get_player_goals_assists_match, players
         )
-
         season_stats = (
-            raw_data.groupby(["player", "team"])
+            raw_data.groupby(["player", "team", "position"])
             .agg(
                 goals=("goals", "sum"),
                 assists=("assists", "sum"),
