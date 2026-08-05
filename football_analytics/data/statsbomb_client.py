@@ -469,7 +469,13 @@ class StatsBombClient:
 
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
-            position, shots, shots_on_target, goals, total_xg, xg_per_shot.
+            matches_played, position, shots, shots_on_target, goals,
+            total_xg, xg_per_shot. matches_played is the number of matches
+            in the open dataset that contributed to this row — StatsBomb's
+            open data doesn't cover every team's full season for every
+            competition/season, so a low matches_played relative to a
+            normal ~38-match La Liga season signals partial coverage
+            rather than a genuinely quiet season.
 
         Raises:
             DataNotFoundError: If no data is found for the given season(s).
@@ -481,6 +487,7 @@ class StatsBombClient:
         season_stats = (
             raw_data.groupby(group_cols)
             .agg(
+                matches_played=("player", "count"),
                 shots=("shots", "sum"),
                 shots_on_target=("shots_on_target", "sum"),
                 goals=("goals", "sum"),
@@ -502,6 +509,7 @@ class StatsBombClient:
                 "team",
                 "season_id",
                 "season_name",
+                "matches_played",
                 "position",
                 "shots",
                 "shots_on_target",
@@ -533,8 +541,10 @@ class StatsBombClient:
 
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
-            position, passes, passes_completed, completion_rate,
-            progressive_passes.
+            matches_played, position, passes, passes_completed,
+            completion_rate, progressive_passes. matches_played is the
+            number of matches in the open dataset that contributed to this
+            row — see get_player_shooting_season for why that matters.
 
         Raises:
             DataNotFoundError: If no data is found for the given season(s).
@@ -546,6 +556,7 @@ class StatsBombClient:
         season_stats = (
             raw_data.groupby(group_cols)
             .agg(
+                matches_played=("player", "count"),
                 passes=("passes", "sum"),
                 passes_completed=("passes_completed", "sum"),
                 progressive_passes=("progressive_passes", "sum"),
@@ -565,6 +576,7 @@ class StatsBombClient:
                 "team",
                 "season_id",
                 "season_name",
+                "matches_played",
                 "position",
                 "passes",
                 "passes_completed",
@@ -595,7 +607,10 @@ class StatsBombClient:
 
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
-            position, tackles, interceptions, clearances.
+            matches_played, position, tackles, interceptions, clearances.
+            matches_played is the number of matches in the open dataset
+            that contributed to this row — see get_player_shooting_season
+            for why that matters.
 
         Raises:
             DataNotFoundError: If no data is found for the given season(s).
@@ -607,6 +622,7 @@ class StatsBombClient:
         season_stats = (
             raw_data.groupby(group_cols)
             .agg(
+                matches_played=("player", "count"),
                 tackles=("tackles", "sum"),
                 interceptions=("interceptions", "sum"),
                 clearances=("clearances", "sum"),
@@ -623,6 +639,7 @@ class StatsBombClient:
                 "team",
                 "season_id",
                 "season_name",
+                "matches_played",
                 "position",
                 "tackles",
                 "interceptions",
@@ -652,7 +669,9 @@ class StatsBombClient:
 
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
-            position, goals, assists.
+            matches_played, position, goals, assists. matches_played is
+            the number of matches in the open dataset that contributed to
+            this row — see get_player_shooting_season for why that matters.
 
         Raises:
             DataNotFoundError: If no data is found for the given season(s).
@@ -664,6 +683,7 @@ class StatsBombClient:
         season_stats = (
             raw_data.groupby(group_cols)
             .agg(
+                matches_played=("player", "count"),
                 goals=("goals", "sum"),
                 assists=("assists", "sum"),
             )
@@ -679,6 +699,7 @@ class StatsBombClient:
                 "team",
                 "season_id",
                 "season_name",
+                "matches_played",
                 "position",
                 "goals",
                 "assists",

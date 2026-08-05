@@ -330,11 +330,13 @@ def test_get_player_shooting_season_one_row_per_season(
     assert season_1_row["shots"] == 2
     assert season_1_row["goals"] == 1
     assert season_1_row["total_xg"] == pytest.approx(0.5)
+    assert season_1_row["matches_played"] == 2
 
     season_2_row = result[result["season_id"] == 2].iloc[0]
     assert season_2_row["shots"] == 1
     assert season_2_row["goals"] == 1
     assert season_2_row["total_xg"] == pytest.approx(0.5)
+    assert season_2_row["matches_played"] == 1
 
 
 def test_get_player_shooting_season_accepts_single_int_season_id(
