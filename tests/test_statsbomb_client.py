@@ -522,6 +522,38 @@ def test_get_player_goals_assists_match_missing_assist_column(client):
 
 
 # ------------------------------------------------------------------ #
+# get_player_passing_match — missing pass_through_ball column         #
+# ------------------------------------------------------------------ #
+
+
+def test_get_player_passing_match_missing_through_ball_column(client):
+    """StatsBomb omits pass_through_ball entirely when no through ball
+    occurred in the match — this must not crash, just report 0
+    line_breaking_passes."""
+    events_without_through_ball_col = pd.DataFrame(
+        {
+            "type": ["Pass"],
+            "player": ["Odegaard"],
+            "position": ["Center Midfield"],
+            "team": ["Arsenal"],
+            "minute": [10],
+            "location": [[20.0, 40.0]],
+            "pass_end_location": [[70.0, 40.0]],
+            "pass_outcome": [None],
+            "pass_switch": [None],
+        }
+    )
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=events_without_through_ball_col,
+    ):
+        result = client.get_player_passing_match(match_id=1)
+
+    odegaard_row = result[result["player"] == "Odegaard"].iloc[0]
+    assert odegaard_row["line_breaking_passes"] == 0
+
+
+# ------------------------------------------------------------------ #
 # get_player_shooting_match                                            #
 # ------------------------------------------------------------------ #
 

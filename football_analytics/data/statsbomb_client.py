@@ -254,19 +254,19 @@ class StatsBombClient:
         Fetch passing stats per player for a specific match.
 
         progressive_passes counts passes that end at least 25% closer to the
-        center of the opponent's goal than they started — a simplified,
+        center of the opponent's goal than they started, a simplified,
         single-threshold version of the "progressive pass" concept used in
-        public football analytics (more rigorous versions use tiered
-        thresholds depending on which third of the pitch the pass starts
-        in). StatsBomb's open data has no direct progressive-pass tag, so
-        this is computed from location/pass_end_location.
+        public football analytics. StatsBomb's open data has no direct
+        progressive-pass tag, so this is computed from
+        location/pass_end_location.
 
-        line_breaking_passes counts passes StatsBomb tags as pass_through_ball
-        — a pass threaded through or behind the defensive line into space.
-        This is used as-is rather than computed from geometry, since
-        detecting a genuine line break requires knowing defender positions
-        at the moment of the pass, which isn't available in this dataset
-        outside StatsBomb's separate, limited 360 freeze-frame data.
+        line_breaking_passes counts passes StatsBomb tags as
+        pass_through_ball, a pass threaded through or behind the defensive
+        line into space. This is used as-is rather than computed from
+        geometry, since detecting a genuine line break requires knowing
+        defender positions at the moment of the pass, which isn't available
+        in this dataset outside StatsBomb's separate, limited 360
+        freeze-frame data.
 
         Args:
             match_id: StatsBomb match ID.
@@ -283,6 +283,13 @@ class StatsBombClient:
         passes = events[events["type"] == "Pass"].copy()
         if passes.empty:
             raise DataNotFoundError(f"No pass data found for match{match_id}")
+
+        # StatsBomb omits pass_through_ball entirely from a match's events
+        # when no through ball occurred in that match, rather than populating
+        # it with False — same pattern as pass_goal_assist in
+        # get_player_goals_assists_match.
+        if "pass_through_ball" not in passes.columns:
+            passes["pass_through_ball"] = False
 
         # opponent's goal is centered at (120, 40) on StatsBomb's 120x80 pitch
         start_x, start_y = passes["location"].str[0], passes["location"].str[1]
