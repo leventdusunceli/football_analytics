@@ -14,6 +14,7 @@ from football_analytics.utils.exceptions import DataNotFoundError
 _NETWORK_RETRY_ATTEMPTS = 3
 _NETWORK_RETRY_BACKOFF_SECONDS = 1.0
 
+# TODO:  add across leagues comparison feature 
 
 def _with_retries(fn, *args, **kwargs):
     """
@@ -252,12 +253,28 @@ class StatsBombClient:
         """
         Fetch passing stats per player for a specific match.
 
+        progressive_passes counts passes that end at least 25% closer to the
+        center of the opponent's goal than they started — a simplified,
+        single-threshold version of the "progressive pass" concept used in
+        public football analytics (more rigorous versions use tiered
+        thresholds depending on which third of the pitch the pass starts
+        in). StatsBomb's open data has no direct progressive-pass tag, so
+        this is computed from location/pass_end_location.
+
+        line_breaking_passes counts passes StatsBomb tags as pass_through_ball
+        — a pass threaded through or behind the defensive line into space.
+        This is used as-is rather than computed from geometry, since
+        detecting a genuine line break requires knowing defender positions
+        at the moment of the pass, which isn't available in this dataset
+        outside StatsBomb's separate, limited 360 freeze-frame data.
+
         Args:
             match_id: StatsBomb match ID.
 
         Returns:
             DataFrame with columns: player, team, position, passes,
-            passes_completed, completion_rate, progressive_passes.
+            passes_completed, completion_rate, progressive_passes,
+            line_breaking_passes.
 
         Raises:
             DataNotFoundError: If no pass data is found for the given match.
@@ -267,6 +284,16 @@ class StatsBombClient:
         if passes.empty:
             raise DataNotFoundError(f"No pass data found for match{match_id}")
 
+        # opponent's goal is centered at (120, 40) on StatsBomb's 120x80 pitch
+        start_x, start_y = passes["location"].str[0], passes["location"].str[1]
+        end_x, end_y = (
+            passes["pass_end_location"].str[0],
+            passes["pass_end_location"].str[1],
+        )
+        start_dist_to_goal = ((120 - start_x) ** 2 + (40 - start_y) ** 2) ** 0.5
+        end_dist_to_goal = ((120 - end_x) ** 2 + (40 - end_y) ** 2) ** 0.5
+        passes["is_progressive"] = end_dist_to_goal <= start_dist_to_goal * 0.75
+
         stats = (
             passes.groupby(["player", "team"])
             .agg(
@@ -275,9 +302,13 @@ class StatsBombClient:
                 # The column is only populated when a pass fails e.g. Incomplete, Out, Intercepted.  # noqa: E501
                 # Therefore isna().sum() correctly counts successful completions.
                 passes_completed=("pass_outcome", lambda x: x.isna().sum()),
-                progressive_passes=(
-                    "pass_switch",
-                    lambda x: x.sum() if x.dtype == bool else 0,
+                progressive_passes=("is_progressive", "sum"),
+                # pass_through_ball, like other sparse StatsBomb flags, is only
+                # ever True or NaN (never an explicit False), so it must be
+                # fillna(False) before summing — dtype is object, not bool.
+                line_breaking_passes=(
+                    "pass_through_ball",
+                    lambda x: x.fillna(False).sum(),
                 ),
             )
             .reset_index()
@@ -295,6 +326,7 @@ class StatsBombClient:
                 "passes_completed",
                 "completion_rate",
                 "progressive_passes",
+                "line_breaking_passes",
             ]
         ]
 
@@ -583,9 +615,10 @@ class StatsBombClient:
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
             matches_played, position, passes, passes_completed,
-            completion_rate, progressive_passes. matches_played is the
-            number of matches in the open dataset that contributed to this
-            row — see get_player_shooting_season for why that matters.
+            completion_rate, progressive_passes, line_breaking_passes.
+            matches_played is the number of matches in the open dataset
+            that contributed to this row — see get_player_shooting_season
+            for why that matters.
 
         Raises:
             DataNotFoundError: If no data is found for the given season(s).
@@ -601,6 +634,7 @@ class StatsBombClient:
                 passes=("passes", "sum"),
                 passes_completed=("passes_completed", "sum"),
                 progressive_passes=("progressive_passes", "sum"),
+                line_breaking_passes=("line_breaking_passes", "sum"),
             )
             .reset_index()
         )
@@ -623,6 +657,7 @@ class StatsBombClient:
                 "passes_completed",
                 "completion_rate",
                 "progressive_passes",
+                "line_breaking_passes",
             ]
         ]
         return season_stats.sort_values(

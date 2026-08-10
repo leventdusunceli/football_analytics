@@ -78,6 +78,32 @@ def sample_events_df():
             "pass_outcome": [None, None, None, None, None],
             "pass_switch": [None, False, None, None, None],
             "pass_goal_assist": [None, False, None, None, None],
+            "location": [None, [60.0, 40.0], None, None, None],
+            "pass_end_location": [None, [90.0, 40.0], None, None, None],
+            "pass_through_ball": [None, None, None, None, None],
+        }
+    )
+
+
+@pytest.fixture
+def sample_passing_events_df():
+    """Fake Pass-only events DataFrame covering a clearly progressive pass,
+    a clearly non-progressive pass, and a through ball, for testing
+    get_player_passing_match's progressive/line-breaking logic."""
+    return pd.DataFrame(
+        {
+            "type": ["Pass", "Pass", "Pass"],
+            "player": ["Odegaard", "Odegaard", "Saka"],
+            "position": ["Center Midfield", "Center Midfield", "Right Wing"],
+            "team": ["Arsenal", "Arsenal", "Arsenal"],
+            "minute": [10, 20, 30],
+            # opponent goal center is (120, 40) on StatsBomb's 120x80 pitch
+            "location": [[60.0, 40.0], [60.0, 40.0], [100.0, 40.0]],
+            "pass_end_location": [[90.0, 40.0], [65.0, 40.0], [110.0, 40.0]],
+            "pass_outcome": [None, None, None],
+            "pass_switch": [None, None, None],
+            "pass_goal_assist": [None, None, None],
+            "pass_through_ball": [None, None, True],
         }
     )
 
@@ -550,6 +576,41 @@ def test_get_player_passing_match_passes_match_id(client, sample_events_df):
     ) as mock_events:
         client.get_player_passing_match(match_id=42)
         mock_events.assert_called_once_with(match_id=42)
+
+
+def test_get_player_passing_match_progressive_passes(
+    client, sample_passing_events_df
+):
+    """Regression test: progressive_passes must count actual progression,
+    not fall through to 0 (the original bug) or count pass_switch instead."""
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_passing_events_df,
+    ):
+        result = client.get_player_passing_match(match_id=1)
+
+    odegaard = result[result["player"] == "Odegaard"].iloc[0]
+    assert odegaard["passes"] == 2
+    assert odegaard["progressive_passes"] == 1
+
+    saka = result[result["player"] == "Saka"].iloc[0]
+    assert saka["progressive_passes"] == 1
+
+
+def test_get_player_passing_match_line_breaking_passes(
+    client, sample_passing_events_df
+):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_passing_events_df,
+    ):
+        result = client.get_player_passing_match(match_id=1)
+
+    odegaard = result[result["player"] == "Odegaard"].iloc[0]
+    assert odegaard["line_breaking_passes"] == 0
+
+    saka = result[result["player"] == "Saka"].iloc[0]
+    assert saka["line_breaking_passes"] == 1
 
 
 # ------------------------------------------------------------------ #
