@@ -3,10 +3,49 @@ StatsBomb open data client
 Retrieves ....
 """
 
+import time
+
 import pandas as pd
+import requests
 from statsbombpy import sb
 
 from football_analytics.utils.exceptions import DataNotFoundError
+
+_NETWORK_RETRY_ATTEMPTS = 3
+_NETWORK_RETRY_BACKOFF_SECONDS = 1.0
+
+
+def _with_retries(fn, *args, **kwargs):
+    """
+    Call fn, retrying on transient network failures before giving up.
+
+    statsbombpy fetches StatsBomb's open data as static JSON files over
+    HTTP for every match/season call, so a single dropped connection can
+    otherwise abort an entire multi-match aggregation (e.g. a 380-match
+    season) even after most matches already succeeded. A persistent
+    outage still raises after all retries are exhausted, rather than
+    silently returning partial data as if it were complete.
+
+    Args:
+        fn: The statsbombpy function to call (e.g. sb.events).
+        *args, **kwargs: Passed through to fn.
+
+    Returns:
+        Whatever fn returns.
+
+    Raises:
+        requests.exceptions.ConnectionError | requests.exceptions.Timeout:
+            If every retry attempt fails.
+    """
+    last_error = None
+    for attempt in range(_NETWORK_RETRY_ATTEMPTS):
+        try:
+            return fn(*args, **kwargs)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            last_error = e
+            if attempt < _NETWORK_RETRY_ATTEMPTS - 1:
+                time.sleep(_NETWORK_RETRY_BACKOFF_SECONDS * (attempt + 1))
+    raise last_error
 
 
 class StatsBombClient:
@@ -22,7 +61,7 @@ class StatsBombClient:
         Returns:
             DataFrame of available competitions and seasons.
         """
-        return sb.competitions()
+        return _with_retries(sb.competitions)
 
     def get_matches(
         self,
@@ -48,7 +87,9 @@ class StatsBombClient:
             DataNotFoundError: If no matches are found for the given
             competition, season, or team.
         """
-        matches = sb.matches(competition_id=competition_id, season_id=season_id)
+        matches = _with_retries(
+            sb.matches, competition_id=competition_id, season_id=season_id
+        )
         if matches.empty:
             raise DataNotFoundError(
                 f"No matches found for competition {competition_id},season {season_id}"
@@ -85,7 +126,7 @@ class StatsBombClient:
         Raises:
             DataNotFoundError: If no events are found for the given match.
         """
-        events = sb.events(match_id=match_id)
+        events = _with_retries(sb.events, match_id=match_id)
         if events.empty:
             raise DataNotFoundError(f"No events found for match {match_id}.")
 
@@ -419,7 +460,7 @@ class StatsBombClient:
                 # using the matches DataFrame lineup columns to avoid loading all events
                 player_match_ids = set()
                 for _, match in matches.iterrows():
-                    lineups = sb.lineups(match_id=match["match_id"])
+                    lineups = _with_retries(sb.lineups, match_id=match["match_id"])
                     for team_lineup in lineups.values():
                         if any(
                             p in players for p in team_lineup["player_name"].values

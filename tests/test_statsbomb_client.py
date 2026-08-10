@@ -1,11 +1,12 @@
 """Tests for StatsBombClient."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+import requests
 
-from football_analytics.data.statsbomb_client import StatsBombClient
+from football_analytics.data.statsbomb_client import StatsBombClient, _with_retries
 from football_analytics.utils.exceptions import DataNotFoundError
 
 
@@ -13,6 +14,32 @@ from football_analytics.utils.exceptions import DataNotFoundError
 def client():
     """Returns a StatsBombClient instance."""
     return StatsBombClient()
+
+
+# ------------------------------------------------------------------ #
+# _with_retries                                                        #
+# ------------------------------------------------------------------ #
+
+
+def test_with_retries_recovers_from_transient_connection_error():
+    """A dropped connection followed by success should not fail the call."""
+    fn = MagicMock(
+        side_effect=[requests.exceptions.ConnectionError("refused"), "result"]
+    )
+    with patch("football_analytics.data.statsbomb_client.time.sleep"):
+        result = _with_retries(fn)
+    assert result == "result"
+    assert fn.call_count == 2
+
+
+def test_with_retries_raises_after_exhausting_attempts():
+    """A persistent outage must still surface as an error, not silently
+    return partial/empty data."""
+    fn = MagicMock(side_effect=requests.exceptions.ConnectionError("refused"))
+    with patch("football_analytics.data.statsbomb_client.time.sleep"):
+        with pytest.raises(requests.exceptions.ConnectionError):
+            _with_retries(fn)
+    assert fn.call_count == 3
 
 
 @pytest.fixture
