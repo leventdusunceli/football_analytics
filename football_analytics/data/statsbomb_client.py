@@ -2,6 +2,9 @@
 StatsBomb open data client
 Retrieves ....
 """
+# TODO: integrate visualizations into the method itself or create a visualization script
+# TODO:  add across leagues comparison feature 
+
 
 import time
 
@@ -14,7 +17,7 @@ from football_analytics.utils.exceptions import DataNotFoundError
 _NETWORK_RETRY_ATTEMPTS = 3
 _NETWORK_RETRY_BACKOFF_SECONDS = 1.0
 
-# TODO:  add across leagues comparison feature 
+
 
 def _with_retries(fn, *args, **kwargs):
     """
