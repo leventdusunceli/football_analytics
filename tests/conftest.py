@@ -22,6 +22,22 @@ def sample_shots():
 
 
 @pytest.fixture
+def sample_player_passing_stats():
+    """Fake passing data mimicking get_player_passing_match() output"""
+    return pd.DataFrame(
+        {
+            "player": ["Saka", "Odegaard", "Havertz", "Palmer"],
+            "team": ["Arsenal", "Arsenal", "Arsenal", "Chelsea"],
+            "passes": [40, 60, 30, 50],
+            "passes_completed": [32, 54, 21, 40],
+            "completion_rate": [80.0, 90.0, 70.0, 80.0],
+            "progressive_passes": [10, 15, 5, 12],
+            "line_breaking_passes": [2, 4, 1, 3],
+        }
+    )
+
+
+@pytest.fixture
 def sample_raw_matches():
     """Fake row matches mimicking football-data.org API response"""
     return {

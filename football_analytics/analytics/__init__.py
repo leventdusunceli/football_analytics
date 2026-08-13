@@ -3,6 +3,7 @@ from football_analytics.analytics.form import (
     get_points_per_game,
     get_recent_form,
 )
+from football_analytics.analytics.passing import get_team_passing_summary
 from football_analytics.analytics.player import (
     add_per_90_columns,
     get_top_performers,
@@ -25,6 +26,7 @@ __all__ = [
     "get_match_xg_summary",
     "get_player_xg_ranking",
     "get_xg_overperformance",
+    "get_team_passing_summary",
     "get_clean_standings",
     "get_expected_vs_actual",
     "get_top_performers",
