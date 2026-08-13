@@ -73,13 +73,27 @@ def sample_events_df():
             ],
             "team": ["Arsenal", "Arsenal", "Arsenal", "Arsenal", "Chelsea"],
             "minute": [12, 23, 45, 67, 88],
+            "period": [1, 1, 1, 1, 2],
             "shot_statsbomb_xg": [0.342, None, 0.521, None, 0.231],
             "shot_outcome": ["Goal", None, "Saved", None, "Missed"],
             "pass_outcome": [None, None, None, None, None],
             "pass_switch": [None, False, None, None, None],
             "pass_goal_assist": [None, False, None, None, None],
-            "location": [None, [60.0, 40.0], None, None, None],
+            "location": [
+                [110.0, 38.0],
+                [60.0, 40.0],
+                [100.0, 42.0],
+                None,
+                [95.0, 45.0],
+            ],
             "pass_end_location": [None, [90.0, 40.0], None, None, None],
+            "shot_end_location": [
+                [120.0, 40.0],
+                None,
+                [118.0, 36.0],
+                None,
+                [119.0, 44.0],
+            ],
             "pass_through_ball": [None, None, None, None, None],
         }
     )
@@ -88,22 +102,39 @@ def sample_events_df():
 @pytest.fixture
 def sample_passing_events_df():
     """Fake Pass-only events DataFrame covering a clearly progressive pass,
-    a clearly non-progressive pass, and a through ball, for testing
-    get_player_passing_match's progressive/line-breaking logic."""
+    a clearly non-progressive pass, a through ball, and an assist, for
+    testing get_player_passing_match's progressive/line-breaking/assist
+    logic."""
     return pd.DataFrame(
         {
-            "type": ["Pass", "Pass", "Pass"],
-            "player": ["Odegaard", "Odegaard", "Saka"],
-            "position": ["Center Midfield", "Center Midfield", "Right Wing"],
-            "team": ["Arsenal", "Arsenal", "Arsenal"],
-            "minute": [10, 20, 30],
+            "type": ["Pass", "Pass", "Pass", "Pass"],
+            "player": ["Odegaard", "Odegaard", "Saka", "Havertz"],
+            "position": [
+                "Center Midfield",
+                "Center Midfield",
+                "Right Wing",
+                "Center Forward",
+            ],
+            "team": ["Arsenal", "Arsenal", "Arsenal", "Arsenal"],
+            "minute": [10, 20, 30, 40],
+            "period": [1, 1, 1, 1],
             # opponent goal center is (120, 40) on StatsBomb's 120x80 pitch
-            "location": [[60.0, 40.0], [60.0, 40.0], [100.0, 40.0]],
-            "pass_end_location": [[90.0, 40.0], [65.0, 40.0], [110.0, 40.0]],
-            "pass_outcome": [None, None, None],
-            "pass_switch": [None, None, None],
-            "pass_goal_assist": [None, None, None],
-            "pass_through_ball": [None, None, True],
+            "location": [
+                [60.0, 40.0],
+                [60.0, 40.0],
+                [100.0, 40.0],
+                [90.0, 40.0],
+            ],
+            "pass_end_location": [
+                [90.0, 40.0],
+                [65.0, 40.0],
+                [110.0, 40.0],
+                [100.0, 40.0],
+            ],
+            "pass_outcome": [None, None, None, None],
+            "pass_switch": [None, None, None, None],
+            "pass_goal_assist": [None, None, None, True],
+            "pass_through_ball": [None, None, True, None],
         }
     )
 
@@ -249,6 +280,187 @@ def test_get_shots_no_shots_raises_error(client):
             client.get_shots(match_id=1)
 
 
+def test_get_shots_team_filter(client, sample_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_events_df,
+    ):
+        result = client.get_shots(match_id=1, team="Chelsea")
+        assert set(result["team"]) == {"Chelsea"}
+
+
+def test_get_shots_player_filter(client, sample_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_events_df,
+    ):
+        result = client.get_shots(match_id=1, player="Saka")
+        assert set(result["player"]) == {"Saka"}
+
+
+def test_get_shots_filter_no_match_raises_error(client, sample_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_events_df,
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_shots(match_id=1, team="Liverpool")
+
+
+def test_get_shots_includes_location_columns(client, sample_events_df):
+    """Regression test: get_shots must expose location/shot_end_location
+    for visualization, not just the aggregate stat columns."""
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_events_df,
+    ):
+        result = client.get_shots(match_id=1)
+        assert {"location", "shot_end_location", "period"}.issubset(result.columns)
+
+
+# ------------------------------------------------------------------ #
+# get_passes                                                            #
+# ------------------------------------------------------------------ #
+
+
+def test_get_passes_returns_only_passes(client, sample_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_events_df,
+    ):
+        result = client.get_passes(match_id=1)
+        # sample_events_df has 1 pass event
+        assert len(result) == 1
+        assert result.iloc[0]["player"] == "Odegaard"
+
+
+def test_get_passes_correct_columns(client, sample_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_events_df,
+    ):
+        result = client.get_passes(match_id=1)
+        expected_cols = {
+            "player",
+            "team",
+            "position",
+            "minute",
+            "period",
+            "location",
+            "pass_end_location",
+            "pass_outcome",
+            "pass_through_ball",
+            "pass_goal_assist",
+            "is_progressive",
+        }
+        assert expected_cols.issubset(set(result.columns))
+
+
+def test_get_passes_is_progressive_flag(client, sample_passing_events_df):
+    """sample_passing_events_df has one clearly progressive pass (Odegaard's
+    first) and one clearly non-progressive one (Odegaard's second)."""
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_passing_events_df,
+    ):
+        result = client.get_passes(match_id=1, player="Odegaard")
+        assert result["is_progressive"].tolist() == [True, False]
+
+
+def test_get_passes_missing_goal_assist_column_defaults_false(client):
+    """Same StatsBomb gotcha as pass_through_ball: pass_goal_assist can be
+    entirely absent from a match's events, not just null."""
+    events_without_assist_col = pd.DataFrame(
+        {
+            "type": ["Pass"],
+            "player": ["Odegaard"],
+            "position": ["Center Midfield"],
+            "team": ["Arsenal"],
+            "minute": [10],
+            "period": [1],
+            "location": [[20.0, 40.0]],
+            "pass_end_location": [[70.0, 40.0]],
+            "pass_outcome": [None],
+        }
+    )
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=events_without_assist_col,
+    ):
+        result = client.get_passes(match_id=1)
+        assert result.iloc[0]["pass_goal_assist"] == False  # noqa: E712
+
+
+def test_get_passes_team_filter(client, sample_passing_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_passing_events_df,
+    ):
+        result = client.get_passes(match_id=1, team="Arsenal")
+        assert set(result["team"]) == {"Arsenal"}
+
+
+def test_get_passes_player_filter(client, sample_passing_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_passing_events_df,
+    ):
+        result = client.get_passes(match_id=1, player="Saka")
+        assert set(result["player"]) == {"Saka"}
+        assert len(result) == 1
+
+
+def test_get_passes_filter_no_match_raises_error(client, sample_passing_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_passing_events_df,
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_passes(match_id=1, player="Nobody")
+
+
+def test_get_passes_no_passes_raises_error(client):
+    no_passes_df = pd.DataFrame(
+        {
+            "type": ["Tackle"],
+            "player": ["White"],
+            "team": ["Arsenal"],
+            "minute": [20],
+            "period": [1],
+        }
+    )
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=no_passes_df,
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_passes(match_id=1)
+
+
+def test_get_passes_missing_through_ball_column_defaults_false(client):
+    """Same gotcha as get_player_passing_match: pass_through_ball can be
+    entirely absent from a match's events, not just null."""
+    events_without_through_ball_col = pd.DataFrame(
+        {
+            "type": ["Pass"],
+            "player": ["Odegaard"],
+            "position": ["Center Midfield"],
+            "team": ["Arsenal"],
+            "minute": [10],
+            "period": [1],
+            "location": [[20.0, 40.0]],
+            "pass_end_location": [[70.0, 40.0]],
+            "pass_outcome": [None],
+        }
+    )
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=events_without_through_ball_col,
+    ):
+        result = client.get_passes(match_id=1)
+        assert result.iloc[0]["pass_through_ball"] == False  # noqa: E712
+
+
 # ------------------------------------------------------------------ #
 # Season-level fixtures                                                #
 # ------------------------------------------------------------------ #
@@ -306,6 +518,9 @@ def multi_season_events():
             "position": "Right Wing",
             "team": team,
             "minute": minute,
+            "period": 1,
+            "location": [100.0, 40.0],
+            "shot_end_location": [120.0, 40.0],
             "shot_statsbomb_xg": xg,
             "shot_outcome": outcome,
             "pass_outcome": None,
@@ -490,6 +705,59 @@ def test_get_shots_season_teams_filter_excludes_other_teams(
 
 
 # ------------------------------------------------------------------ #
+# get_player_passing_season                                            #
+# ------------------------------------------------------------------ #
+
+
+def test_get_player_passing_season_includes_assists(
+    client, sample_competitions_df, multi_season_matches
+):
+    """Regression test: assists must be present and summed correctly at
+    the season level, sourced from get_player_passing_match's assists
+    column."""
+
+    def _pass_row(assist: bool) -> dict:
+        return {
+            "type": "Pass",
+            "player": "Odegaard",
+            "position": "Center Midfield",
+            "team": "Arsenal",
+            "minute": 10,
+            "period": 1,
+            "location": [60.0, 40.0],
+            "pass_end_location": [65.0, 40.0],
+            "pass_outcome": None,
+            "pass_through_ball": None,
+            "pass_goal_assist": True if assist else None,
+        }
+
+    events_by_match = {
+        101: pd.DataFrame([_pass_row(assist=True)]),
+        102: pd.DataFrame([_pass_row(assist=False)]),
+    }
+
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            side_effect=lambda competition_id, season_id: multi_season_matches[
+                season_id
+            ],
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            side_effect=lambda match_id: events_by_match[match_id],
+        ),
+    ):
+        result = client.get_player_passing_season(competition_id=11, season_ids=1)
+
+    assert result.iloc[0]["assists"] == 1
+
+
+# ------------------------------------------------------------------ #
 # get_player_goals_assists_match — missing pass_goal_assist column     #
 # ------------------------------------------------------------------ #
 
@@ -504,6 +772,9 @@ def test_get_player_goals_assists_match_missing_assist_column(client):
             "position": ["Right Wing"],
             "team": ["Arsenal"],
             "minute": [10],
+            "period": [1],
+            "location": [[100.0, 40.0]],
+            "shot_end_location": [[120.0, 40.0]],
             "shot_statsbomb_xg": [0.3],
             "shot_outcome": ["Goal"],
             "pass_outcome": [None],
@@ -537,6 +808,7 @@ def test_get_player_passing_match_missing_through_ball_column(client):
             "position": ["Center Midfield"],
             "team": ["Arsenal"],
             "minute": [10],
+            "period": [1],
             "location": [[20.0, 40.0]],
             "pass_end_location": [[70.0, 40.0]],
             "pass_outcome": [None],
@@ -643,6 +915,20 @@ def test_get_player_passing_match_line_breaking_passes(
 
     saka = result[result["player"] == "Saka"].iloc[0]
     assert saka["line_breaking_passes"] == 1
+
+
+def test_get_player_passing_match_assists(client, sample_passing_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_passing_events_df,
+    ):
+        result = client.get_player_passing_match(match_id=1)
+
+    havertz = result[result["player"] == "Havertz"].iloc[0]
+    assert havertz["assists"] == 1
+
+    odegaard = result[result["player"] == "Odegaard"].iloc[0]
+    assert odegaard["assists"] == 0
 
 
 # ------------------------------------------------------------------ #

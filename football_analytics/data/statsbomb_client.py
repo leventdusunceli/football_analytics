@@ -143,31 +143,147 @@ class StatsBombClient:
 
         return events
 
-    def get_shots(self, match_id: int) -> pd.DataFrame:
+    def get_shots(
+        self,
+        match_id: int,
+        team: str | None = None,
+        player: str | None = None,
+    ) -> pd.DataFrame:
         """
-        Fetch all shot events for a specific match, including xG values.
+        Fetch all shot events for a specific match, including xG values
+        and start/end locations for visualization.
 
         Args:
             match_id: StatsBomb match ID.
+            team: Optional exact team name to filter to a single team's
+                shots.
+            player: Optional exact player name to filter to a single
+                player's shots.
 
         Returns:
-            DataFrame of shots with xG values.
+            DataFrame of shots with columns: player, team, position,
+            minute, period, location, shot_end_location,
+            shot_statsbomb_xg, shot_outcome. location and
+            shot_end_location are [x, y] (shot_end_location is
+            sometimes [x, y, z] when the shot's height was tracked).
 
         Raises:
-            DataNotFoundError: If no shots are found for the given match.
+            DataNotFoundError: If no shots are found for the given match,
+                or none match the team/player filter.
         """
         events = self.get_events(match_id)
-        shots = events[events["type"] == "Shot"].copy()
+        shots = events[events["type"] == "Shot"]
+        if team:
+            shots = shots[shots["team"] == team]
+        if player:
+            shots = shots[shots["player"] == player]
+        shots = shots.copy()
+
         if shots.empty:
-            raise DataNotFoundError(f"No shots found for match {match_id}.")
+            filter_desc = (
+                f" matching team={team!r}, player={player!r}"
+                if (team or player)
+                else ""
+            )
+            raise DataNotFoundError(
+                f"No shots found for match {match_id}{filter_desc}."
+            )
+
         return shots[
             [
                 "player",
                 "team",
                 "position",
                 "minute",
+                "period",
+                "location",
+                "shot_end_location",
                 "shot_statsbomb_xg",
                 "shot_outcome",
+            ]
+        ]
+
+    def get_passes(
+        self,
+        match_id: int,
+        team: str | None = None,
+        player: str | None = None,
+    ) -> pd.DataFrame:
+        """
+        Fetch all pass events for a specific match, with start/end
+        locations and pass-classification flags for visualization.
+
+        is_progressive means the pass ends at least 25% closer to the
+        center of the opponent's goal than it started — a simplified,
+        single-threshold version of the public "progressive pass" concept
+        (StatsBomb has no direct tag for this, so it's computed from
+        location/pass_end_location).
+
+        Args:
+            match_id: StatsBomb match ID.
+            team: Optional exact team name to filter to a single team's
+                passes.
+            player: Optional exact player name to filter to a single
+                player's passes.
+
+        Returns:
+            DataFrame of passes with columns: player, team, position,
+            minute, period, location, pass_end_location, pass_outcome,
+            pass_through_ball, pass_goal_assist, is_progressive. location
+            and pass_end_location are [x, y].
+
+        Raises:
+            DataNotFoundError: If no passes are found for the given
+                match, or none match the team/player filter.
+        """
+        events = self.get_events(match_id)
+        passes = events[events["type"] == "Pass"]
+        if team:
+            passes = passes[passes["team"] == team]
+        if player:
+            passes = passes[passes["player"] == player]
+        passes = passes.copy()
+
+        if passes.empty:
+            filter_desc = (
+                f" matching team={team!r}, player={player!r}"
+                if (team or player)
+                else ""
+            )
+            raise DataNotFoundError(
+                f"No passes found for match {match_id}{filter_desc}."
+            )
+
+        # StatsBomb omits these sparse flags entirely from a match's events
+        # when they never occur in that match, rather than populating them
+        # with False.
+        for flag_col in ("pass_through_ball", "pass_goal_assist"):
+            if flag_col not in passes.columns:
+                passes[flag_col] = False
+
+        # opponent's goal is centered at (120, 40) on StatsBomb's 120x80 pitch
+        start_x, start_y = passes["location"].str[0], passes["location"].str[1]
+        end_x, end_y = (
+            passes["pass_end_location"].str[0],
+            passes["pass_end_location"].str[1],
+        )
+        start_dist_to_goal = ((120 - start_x) ** 2 + (40 - start_y) ** 2) ** 0.5
+        end_dist_to_goal = ((120 - end_x) ** 2 + (40 - end_y) ** 2) ** 0.5
+        passes["is_progressive"] = end_dist_to_goal <= start_dist_to_goal * 0.75
+
+        return passes[
+            [
+                "player",
+                "team",
+                "position",
+                "minute",
+                "period",
+                "location",
+                "pass_end_location",
+                "pass_outcome",
+                "pass_through_ball",
+                "pass_goal_assist",
+                "is_progressive",
             ]
         ]
 
@@ -267,9 +383,9 @@ class StatsBombClient:
         pass_through_ball, a pass threaded through or behind the defensive
         line into space. This is used as-is rather than computed from
         geometry, since detecting a genuine line break requires knowing
-        defender positions at the moment of the pass, which isn't available
-        in this dataset outside StatsBomb's separate, limited 360
-        freeze-frame data.
+        defender positions at the moment of the pass, which isn't
+        available in this dataset outside StatsBomb's separate, limited
+        360 freeze-frame data.
 
         Args:
             match_id: StatsBomb match ID.
@@ -277,49 +393,31 @@ class StatsBombClient:
         Returns:
             DataFrame with columns: player, team, position, passes,
             passes_completed, completion_rate, progressive_passes,
-            line_breaking_passes.
+            line_breaking_passes, assists.
 
         Raises:
             DataNotFoundError: If no pass data is found for the given match.
         """
-        events = self.get_events(match_id)
-        passes = events[events["type"] == "Pass"].copy()
-        if passes.empty:
-            raise DataNotFoundError(f"No pass data found for match{match_id}")
-
-        # StatsBomb omits pass_through_ball entirely from a match's events
-        # when no through ball occurred in that match, rather than populating
-        # it with False — same pattern as pass_goal_assist in
-        # get_player_goals_assists_match.
-        if "pass_through_ball" not in passes.columns:
-            passes["pass_through_ball"] = False
-
-        # opponent's goal is centered at (120, 40) on StatsBomb's 120x80 pitch
-        start_x, start_y = passes["location"].str[0], passes["location"].str[1]
-        end_x, end_y = (
-            passes["pass_end_location"].str[0],
-            passes["pass_end_location"].str[1],
-        )
-        start_dist_to_goal = ((120 - start_x) ** 2 + (40 - start_y) ** 2) ** 0.5
-        end_dist_to_goal = ((120 - end_x) ** 2 + (40 - end_y) ** 2) ** 0.5
-        passes["is_progressive"] = end_dist_to_goal <= start_dist_to_goal * 0.75
+        passes = self.get_passes(match_id)
 
         stats = (
             passes.groupby(["player", "team"])
             .agg(
-                passes=("type", "count"),
+                passes=("player", "count"),
                 # StatsBomb marks completed passes as NaN in pass_outcome.
                 # The column is only populated when a pass fails e.g. Incomplete, Out, Intercepted.  # noqa: E501
                 # Therefore isna().sum() correctly counts successful completions.
                 passes_completed=("pass_outcome", lambda x: x.isna().sum()),
                 progressive_passes=("is_progressive", "sum"),
-                # pass_through_ball, like other sparse StatsBomb flags, is only
-                # ever True or NaN (never an explicit False), so it must be
-                # fillna(False) before summing — dtype is object, not bool.
+                # pass_through_ball/pass_goal_assist, like other sparse
+                # StatsBomb flags, are only ever True or NaN (never an
+                # explicit False), so they must be fillna(False) before
+                # summing — dtype is object, not bool.
                 line_breaking_passes=(
                     "pass_through_ball",
                     lambda x: x.fillna(False).sum(),
                 ),
+                assists=("pass_goal_assist", lambda x: x.fillna(False).sum()),
             )
             .reset_index()
         )
@@ -337,6 +435,7 @@ class StatsBombClient:
                 "completion_rate",
                 "progressive_passes",
                 "line_breaking_passes",
+                "assists",
             ]
         ]
 
@@ -625,10 +724,10 @@ class StatsBombClient:
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
             matches_played, position, passes, passes_completed,
-            completion_rate, progressive_passes, line_breaking_passes.
-            matches_played is the number of matches in the open dataset
-            that contributed to this row — see get_player_shooting_season
-            for why that matters.
+            completion_rate, progressive_passes, line_breaking_passes,
+            assists. matches_played is the number of matches in the open
+            dataset that contributed to this row — see
+            get_player_shooting_season for why that matters.
 
         Raises:
             DataNotFoundError: If no data is found for the given season(s).
@@ -645,6 +744,7 @@ class StatsBombClient:
                 passes_completed=("passes_completed", "sum"),
                 progressive_passes=("progressive_passes", "sum"),
                 line_breaking_passes=("line_breaking_passes", "sum"),
+                assists=("assists", "sum"),
             )
             .reset_index()
         )
@@ -668,6 +768,7 @@ class StatsBombClient:
                 "completion_rate",
                 "progressive_passes",
                 "line_breaking_passes",
+                "assists",
             ]
         ]
         return season_stats.sort_values(
