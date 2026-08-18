@@ -493,6 +493,17 @@ class StatsBombClient:
         """
         Fetch goals and assists per player for a specific match.
 
+        Every player who actually appeared in the match gets a row, with
+        goals/assists zero-filled by default. Unlike shots or passes,
+        goals and assists are sparse — most players record zero of both
+        in most matches they play — so building this DataFrame only from
+        scorers/assisters (the way get_shots/get_passes build theirs from
+        shot-takers/passers) would make matches_played in
+        get_player_goals_assists_season() count only matches where a
+        player scored or assisted, silently undercounting real
+        appearances. sb.lineups' per-player `positions` list is the
+        appearance signal: an empty list means an unused substitute.
+
         Args:
             match_id: StatsBomb match ID.
 
@@ -500,10 +511,29 @@ class StatsBombClient:
             DataFrame with columns: player, team, position, goals, assists.
 
         Raises:
-            DataNotFoundError: If no event data found for the given match.
+            DataNotFoundError: If no lineup data is found for the given match.
         """
         shots = self.get_shots(match_id)
         events = self.get_events(match_id)
+
+        lineups = _with_retries(sb.lineups, match_id=match_id)
+        roster = pd.concat(
+            [
+                pd.DataFrame(
+                    {
+                        "player": team_lineup.loc[
+                            team_lineup["positions"].map(len) > 0, "player_name"
+                        ],
+                        "team": team,
+                    }
+                )
+                for team, team_lineup in lineups.items()
+            ],
+            ignore_index=True,
+        )
+
+        if roster.empty:
+            raise DataNotFoundError(f"No lineup data found for match {match_id}")
 
         goals = (
             shots[shots["shot_outcome"] == "Goal"]
@@ -523,16 +553,18 @@ class StatsBombClient:
         else:
             assists = pd.DataFrame(columns=["player", "team", "assists"])
 
-        stats = goals.merge(assists, on=["player", "team"], how="outer")
+        stats = roster.merge(goals, on=["player", "team"], how="left")
+        stats = stats.merge(assists, on=["player", "team"], how="left")
         stats = stats.fillna(0)
 
         for col in ["goals", "assists"]:
             stats[col] = stats[col].astype(int)
 
-        if stats.empty:
-            raise DataNotFoundError(f"No goals or assists found for match {match_id}")
+        stats = stats.merge(
+            self._primary_positions(events), on=["player", "team"], how="left"
+        )
+        stats["position"] = stats["position"].fillna("Unknown")
 
-        stats = stats.merge(self._primary_positions(events), on=["player", "team"])
         return stats[["player", "team", "position", "goals", "assists"]]
 
     # -----------------------------------------------------------------------#
@@ -647,7 +679,7 @@ class StatsBombClient:
             competition_id: StatsBomb competition ID.
             season_ids: A single StatsBomb season ID or a list of them.
             players: Optional list of exact player names to filter for.
-                     Significantly faster than loading all players.
+                    Significantly faster than loading all players.
 
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
@@ -852,13 +884,17 @@ class StatsBombClient:
             competition_id: StatsBomb competition ID.
             season_ids: A single StatsBomb season ID or a list of them.
             players: Optional list of exact player names to filter for.
-                     Significantly faster than loading all players.
+                    Significantly faster than loading all players.
 
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
             matches_played, position, goals, assists. matches_played is
-            the number of matches in the open dataset that contributed to
-            this row — see get_player_shooting_season for why that matters.
+            the number of matches in the open dataset where the player
+            actually appeared (via sb.lineups), not just matches where
+            they scored or assisted — goals/assists are too sparse per
+            match for "contributed to this row" (get_player_shooting_season's
+            caveat) to mean actual appearances the way it does for shots/
+            passes/defensive actions.
 
         Raises:
             DataNotFoundError: If no data is found for the given season(s).

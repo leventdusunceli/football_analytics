@@ -100,6 +100,33 @@ def sample_events_df():
 
 
 @pytest.fixture
+def sample_lineups():
+    """sb.lineups matching sample_events_df's players, plus one unused
+    substitute (empty `positions`) to verify bench players who never
+    entered the match are excluded from goals/assists output."""
+    return {
+        "Arsenal": pd.DataFrame(
+            {
+                "player_name": ["Saka", "Odegaard", "Havertz", "White", "Benched Sub"],
+                "positions": [
+                    [{"position": "Right Wing"}],
+                    [{"position": "Center Midfield"}],
+                    [{"position": "Center Forward"}],
+                    [{"position": "Right Back"}],
+                    [],
+                ],
+            }
+        ),
+        "Chelsea": pd.DataFrame(
+            {
+                "player_name": ["Palmer"],
+                "positions": [[{"position": "Center Forward"}]],
+            }
+        ),
+    }
+
+
+@pytest.fixture
 def sample_passing_events_df():
     """Fake Pass-only events DataFrame covering a clearly progressive pass,
     a clearly non-progressive pass, a through ball, and an assist, for
@@ -542,10 +569,22 @@ def multi_season_events():
 
 @pytest.fixture
 def multi_season_lineups():
-    """sb.lineups per match_id — dict keyed by team name, as statsbombpy returns."""
-    arsenal_lineup = pd.DataFrame({"player_name": ["Saka", "Odegaard"]})
-    chelsea_lineup = pd.DataFrame({"player_name": ["Havertz"]})
-    liverpool_lineup = pd.DataFrame({"player_name": ["Salah"]})
+    """sb.lineups per match_id — dict keyed by team name, as statsbombpy
+    returns. `positions` is non-empty for everyone listed here (they all
+    actually appeared) — get_player_goals_assists_match uses an empty
+    `positions` list to detect unused substitutes."""
+
+    def _played(names):
+        return pd.DataFrame(
+            {
+                "player_name": names,
+                "positions": [[{"position": "Unknown"}]] * len(names),
+            }
+        )
+
+    arsenal_lineup = _played(["Saka", "Odegaard"])
+    chelsea_lineup = _played(["Havertz"])
+    liverpool_lineup = _played(["Salah"])
     return {
         101: {"Arsenal": arsenal_lineup, "Chelsea": chelsea_lineup},
         102: {"Chelsea": chelsea_lineup, "Arsenal": arsenal_lineup},
@@ -758,6 +797,55 @@ def test_get_player_passing_season_includes_assists(
 
 
 # ------------------------------------------------------------------ #
+# get_player_goals_assists_season (multi-season)                       #
+# ------------------------------------------------------------------ #
+
+
+def test_get_player_goals_assists_season_matches_played_counts_all_appearances(
+    client,
+    sample_competitions_df,
+    multi_season_matches,
+    multi_season_events,
+    multi_season_lineups,
+):
+    """Regression test for the matches_played bug: Saka appears in both
+    matches of season 1 (multi_season_events: scores in 101, only shoots
+    — no goal, no assist — in 102) but must still be counted as having
+    played both, not just the one he scored in."""
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            side_effect=lambda competition_id, season_id: multi_season_matches[
+                season_id
+            ],
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            side_effect=lambda match_id: multi_season_lineups[match_id],
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            side_effect=lambda match_id: multi_season_events[match_id],
+        ),
+    ):
+        result = client.get_player_goals_assists_season(
+            competition_id=11, season_ids=[1, 2], players=["Saka"]
+        )
+
+    season_1_row = result[result["season_id"] == 1].iloc[0]
+    assert season_1_row["matches_played"] == 2
+    assert season_1_row["goals"] == 1
+
+    season_2_row = result[result["season_id"] == 2].iloc[0]
+    assert season_2_row["matches_played"] == 1
+    assert season_2_row["goals"] == 1
+
+
+# ------------------------------------------------------------------ #
 # get_player_goals_assists_match — missing pass_goal_assist column     #
 # ------------------------------------------------------------------ #
 
@@ -781,9 +869,20 @@ def test_get_player_goals_assists_match_missing_assist_column(client):
             "pass_switch": [None],
         }
     )
-    with patch(
-        "football_analytics.data.statsbomb_client.sb.events",
-        return_value=events_without_assist_col,
+    saka_lineup = {
+        "Arsenal": pd.DataFrame(
+            {"player_name": ["Saka"], "positions": [[{"position": "Right Wing"}]]}
+        )
+    }
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=events_without_assist_col,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=saka_lineup,
+        ),
     ):
         result = client.get_player_goals_assists_match(match_id=1)
 
@@ -959,19 +1058,143 @@ def test_get_player_defensive_match_passes_match_id(client, sample_events_df):
 # ------------------------------------------------------------------ #
 
 
-def test_get_player_goals_assists_match_returns_dataframe(client, sample_events_df):
-    with patch(
-        "football_analytics.data.statsbomb_client.sb.events",
-        return_value=sample_events_df,
+def test_get_player_goals_assists_match_returns_dataframe(
+    client, sample_events_df, sample_lineups
+):
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=sample_events_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=sample_lineups,
+        ),
     ):
         result = client.get_player_goals_assists_match(match_id=1)
         assert isinstance(result, pd.DataFrame)
 
 
-def test_get_player_goals_assists_match_passes_match_id(client, sample_events_df):
-    with patch(
-        "football_analytics.data.statsbomb_client.sb.events",
-        return_value=sample_events_df,
-    ) as mock_events:
+def test_get_player_goals_assists_match_passes_match_id(
+    client, sample_events_df, sample_lineups
+):
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=sample_events_df,
+        ) as mock_events,
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=sample_lineups,
+        ),
+    ):
         client.get_player_goals_assists_match(match_id=42)
         mock_events.assert_called_with(match_id=42)
+
+
+def test_get_player_goals_assists_match_includes_players_with_zero_stats(
+    client, sample_events_df, sample_lineups
+):
+    """Regression test for the matches_played bug: every player who
+    appeared in the match must get a row, even with 0 goals and 0
+    assists — not just the scorers/assisters. Odegaard neither scores
+    nor assists in sample_events_df."""
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=sample_events_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=sample_lineups,
+        ),
+    ):
+        result = client.get_player_goals_assists_match(match_id=1)
+
+    odegaard_row = result[result["player"] == "Odegaard"].iloc[0]
+    assert odegaard_row["goals"] == 0
+    assert odegaard_row["assists"] == 0
+
+
+def test_get_player_goals_assists_match_excludes_unused_substitutes(
+    client, sample_events_df, sample_lineups
+):
+    """A player listed in the lineup with an empty `positions` list never
+    actually entered the match, and must not be counted as an appearance."""
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=sample_events_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=sample_lineups,
+        ),
+    ):
+        result = client.get_player_goals_assists_match(match_id=1)
+
+    assert "Benched Sub" not in result["player"].values
+
+
+def test_get_player_goals_assists_match_no_goals_or_assists_does_not_raise(
+    client, sample_lineups
+):
+    """A scoreless match (no goals or assists by anyone) is a legitimate
+    result, not missing data — it must not raise DataNotFoundError, and
+    every player who played should still get a 0/0 row."""
+    events_no_goals = pd.DataFrame(
+        {
+            "type": ["Shot", "Pass"],
+            "player": ["Saka", "Odegaard"],
+            "position": ["Right Wing", "Center Midfield"],
+            "team": ["Arsenal", "Arsenal"],
+            "minute": [10, 20],
+            "period": [1, 1],
+            "location": [[100.0, 40.0], [60.0, 40.0]],
+            "shot_end_location": [[118.0, 42.0], None],
+            "shot_statsbomb_xg": [0.1, None],
+            "shot_outcome": ["Saved", None],
+            "pass_outcome": [None, None],
+            "pass_goal_assist": [None, None],
+        }
+    )
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=events_no_goals,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=sample_lineups,
+        ),
+    ):
+        result = client.get_player_goals_assists_match(match_id=1)
+
+    assert (result["goals"] == 0).all()
+    assert (result["assists"] == 0).all()
+    saka_row = result[result["player"] == "Saka"].iloc[0]
+    assert saka_row["goals"] == 0
+
+
+def test_get_player_goals_assists_match_raises_when_no_lineup_data(
+    client, sample_events_df
+):
+    """If sb.lineups has no players who actually appeared (e.g. lineup data
+    is unavailable for this match), that's a genuine DataNotFoundError —
+    distinct from a scoreless-but-fully-played match."""
+    empty_lineups = {
+        "Arsenal": pd.DataFrame({"player_name": [], "positions": []}),
+        "Chelsea": pd.DataFrame({"player_name": [], "positions": []}),
+    }
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=sample_events_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=empty_lineups,
+        ),
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_player_goals_assists_match(match_id=1)
