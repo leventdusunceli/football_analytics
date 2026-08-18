@@ -9,11 +9,7 @@ import pandas as pd
 import pytest
 
 from football_analytics.utils.exceptions import DataNotFoundError
-from football_analytics.visualization.match import (
-    _normalize_attacking_direction,
-    plot_passing_map,
-    plot_shot_map,
-)
+from football_analytics.visualization.match import plot_passing_map, plot_shot_map
 
 
 @pytest.fixture
@@ -139,28 +135,3 @@ def test_plot_shot_map_returns_axes(sample_shots):
 def test_plot_shot_map_empty_df_raises_error():
     with pytest.raises(DataNotFoundError):
         plot_shot_map(pd.DataFrame())
-
-
-def test_normalize_attacking_direction_flips_only_even_periods():
-    events = pd.DataFrame(
-        {
-            "period": [1, 2],
-            "location": [[10.0, 10.0], [10.0, 10.0]],
-        }
-    )
-    result = _normalize_attacking_direction(events, ["location"])
-    # period 1 untouched
-    assert result.iloc[0]["location"] == [10.0, 10.0]
-    # period 2 mirrored: (120-10, 80-10) = (110, 70)
-    assert result.iloc[1]["location"] == [110.0, 70.0]
-
-
-def test_normalize_attacking_direction_preserves_z_component():
-    events = pd.DataFrame(
-        {
-            "period": [2],
-            "shot_end_location": [[10.0, 10.0, 2.5]],
-        }
-    )
-    result = _normalize_attacking_direction(events, ["shot_end_location"])
-    assert result.iloc[0]["shot_end_location"] == [110.0, 70.0, 2.5]

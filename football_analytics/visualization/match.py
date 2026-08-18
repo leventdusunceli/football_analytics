@@ -9,10 +9,6 @@ from mplsoccer import Pitch
 
 from football_analytics.utils.exceptions import DataNotFoundError
 
-# StatsBomb's pitch is 120 (length) x 80 (width).
-PITCH_LENGTH = 120
-PITCH_WIDTH = 80
-
 DEFAULT_ARROW_STYLE = {"width": 2, "headwidth": 6, "headlength": 5}
 
 DEFAULT_PASSING_COLORS = {
@@ -21,53 +17,6 @@ DEFAULT_PASSING_COLORS = {
     "line_breaking": "#c0392b",
     "assist": "#27ae60",
 }
-
-
-def _normalize_attacking_direction(
-    events: pd.DataFrame, location_cols: list[str]
-) -> pd.DataFrame:
-    """
-    Flip locations from even-numbered periods so a team's play reads in a
-    consistent direction across a whole match.
-
-    StatsBomb records event locations in real, un-flipped pitch
-    coordinates. Teams switch ends at halftime, so the same team's
-    attacking play trends toward x=120 in period 1 but toward x=0 in
-    period 2. Left as-is, a full-match pitch map would show a team's
-    arrows crossing in both directions, which reads as noise rather than
-    a coherent attacking pattern. Mirroring every even period's
-    coordinates through the pitch center (since both halves are literal
-    mirror images of each other) fixes this without needing to know which
-    end a team actually attacked first.
-
-    Args:
-        events: A pass or shot DataFrame containing 'period' and the
-            given location_cols.
-        location_cols: Column names holding [x, y] (or [x, y, z]) lists
-            to flip.
-
-    Returns:
-        A copy of events with the given location columns mirrored for
-        even-numbered periods.
-    """
-    events = events.copy()
-
-    def _flip_if_even_period(period: int, loc: list[float]) -> list[float]:
-        if period % 2 == 0:
-            return [PITCH_LENGTH - loc[0], PITCH_WIDTH - loc[1], *loc[2:]]
-        return loc
-
-    # Assigning a whole new list back to the column (rather than
-    # df.loc[mask, col] = ...) avoids a pandas pitfall: assigning a Series
-    # of list-valued cells through .loc makes pandas try to align each
-    # list's elements as if they were separate columns, not store the list
-    # as a single cell value.
-    for col in location_cols:
-        events[col] = [
-            _flip_if_even_period(period, loc)
-            for period, loc in zip(events["period"], events[col], strict=True)
-        ]
-    return events
 
 
 def _build_title(events: pd.DataFrame, chart_label: str) -> str:
@@ -138,7 +87,6 @@ def plot_passing_map(
         raise DataNotFoundError("passes is empty — nothing to plot.")
 
     colors = {**DEFAULT_PASSING_COLORS, **(colors or {})}
-    passes = _normalize_attacking_direction(passes, ["location", "pass_end_location"])
     pitch, ax = _draw_pitch(ax)
 
     # fillna(False) alone leaves these object-dtype (NaN/True mix), so ~
@@ -194,7 +142,7 @@ def plot_shot_map(
 
     Args:
         shots: DataFrame from StatsBombClient.get_shots, with location,
-            shot_end_location, shot_outcome, and period columns.
+            shot_end_location, and shot_outcome columns.
         goal_color: Arrow color for shots that resulted in a goal.
         default_color: Arrow color for every other shot outcome.
         ax: Optional existing Axes to draw the pitch on. A new pitch
@@ -209,7 +157,6 @@ def plot_shot_map(
     if shots.empty:
         raise DataNotFoundError("shots is empty — nothing to plot.")
 
-    shots = _normalize_attacking_direction(shots, ["location", "shot_end_location"])
     pitch, ax = _draw_pitch(ax)
 
     is_goal = shots["shot_outcome"] == "Goal"
