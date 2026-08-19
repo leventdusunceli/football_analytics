@@ -10,6 +10,7 @@ import pytest
 
 from football_analytics.utils.exceptions import DataNotFoundError
 from football_analytics.visualization.player import (
+    plot_defensive_profile,
     plot_line_breaking_profile,
     plot_passing_profile,
     plot_shooting_profile,
@@ -129,4 +130,103 @@ def test_plot_line_breaking_profile_x_axis_is_line_breaking_passes(
     ax = plot_line_breaking_profile(sample_passing_stats)
     plotted_x = sorted(c.get_offsets()[0][0] for c in ax.collections)
     assert plotted_x == sorted(sample_passing_stats["line_breaking_passes"].tolist())
+    plt.close(ax.figure)
+
+
+@pytest.fixture
+def sample_defensive_stats():
+    """Fake DataFrame mimicking get_player_defensive_season() output.
+    Busquets outpaces Kante on every "higher is better" stat and trails
+    on every "lower is better" one — an unambiguous ranking to assert on."""
+    return pd.DataFrame(
+        {
+            "player": ["Busquets", "Kante"],
+            "team": ["Barcelona", "Chelsea"],
+            "season_id": [27, 27],
+            "season_name": ["2015/2016", "2015/2016"],
+            "matches_played": [30, 30],
+            "position": ["Center Defensive Midfield", "Center Defensive Midfield"],
+            "tackles": [60, 30],
+            "interceptions": [40, 20],
+            "clearances": [20, 10],
+            "blocks": [10, 5],
+            "ball_recoveries": [150, 100],
+            "got_dribbled_past": [5, 15],
+            "fouls_committed": [10, 20],
+            "yellow_cards": [2, 6],
+            "red_cards": [0, 1],
+        }
+    )
+
+
+def test_plot_defensive_profile_returns_axes(sample_defensive_stats):
+    ax = plot_defensive_profile(sample_defensive_stats)
+    assert isinstance(ax, plt.Axes)
+    plt.close(ax.figure)
+
+
+def test_plot_defensive_profile_empty_stats_raises_error():
+    with pytest.raises(DataNotFoundError):
+        plot_defensive_profile(pd.DataFrame())
+
+
+def test_plot_defensive_profile_one_bar_group_per_stat(sample_defensive_stats):
+    """9 stats x 2 players = 18 bars."""
+    ax = plot_defensive_profile(sample_defensive_stats)
+    assert len(ax.patches) == 18
+    plt.close(ax.figure)
+
+
+def test_plot_defensive_profile_players_filter(sample_defensive_stats):
+    ax = plot_defensive_profile(sample_defensive_stats, players=["Busquets"])
+    assert len(ax.patches) == 9
+    plt.close(ax.figure)
+
+
+def test_plot_defensive_profile_unknown_player_raises_error(sample_defensive_stats):
+    with pytest.raises(DataNotFoundError):
+        plot_defensive_profile(sample_defensive_stats, players=["Nobody"])
+
+
+def test_plot_defensive_profile_higher_stat_gets_longer_bar(sample_defensive_stats):
+    """Regression test: for a "higher is better" stat, the player with the
+    higher per-match rate must get the longer (more favorable) bar."""
+    ax = plot_defensive_profile(sample_defensive_stats)
+    # tackles is the first stat row (y offsets near 0); Busquets' bar
+    # (2 tackles/match) must be longer than Kante's (1 tackle/match).
+    tackle_bars = sorted(
+        (p for p in ax.patches if -0.5 <= p.get_y() <= 0.5), key=lambda p: p.get_y()
+    )
+    assert len(tackle_bars) == 2
+    busquets_bar, kante_bar = tackle_bars
+    assert busquets_bar.get_width() > kante_bar.get_width()
+    plt.close(ax.figure)
+
+
+def test_plot_defensive_profile_lower_is_better_flips_favorability(
+    sample_defensive_stats,
+):
+    """Regression test: for a "lower is better" stat (fouls_committed),
+    the player with the LOWER per-match rate must get the longer
+    (more favorable) bar — a naive percentile-of-raw-value bar would get
+    this backwards."""
+    ax = plot_defensive_profile(sample_defensive_stats)
+    # fouls_committed is the 7th stat (0-indexed row 6).
+    fouls_bars = sorted(
+        (p for p in ax.patches if 5.5 <= p.get_y() <= 6.5), key=lambda p: p.get_y()
+    )
+    assert len(fouls_bars) == 2
+    busquets_bar, kante_bar = fouls_bars
+    # Busquets commits fewer fouls/match (10/30) than Kante (20/30), so
+    # Busquets' bar should be the more favorable (longer) one.
+    assert busquets_bar.get_width() > kante_bar.get_width()
+    plt.close(ax.figure)
+
+
+def test_plot_defensive_profile_bar_lengths_are_percentiles(sample_defensive_stats):
+    """With exactly 2 players, favorability bars must be 0.0/1.0 (or a
+    0.5/0.5 tie) — anything else means the percentile math is off."""
+    ax = plot_defensive_profile(sample_defensive_stats)
+    widths = {round(p.get_width(), 3) for p in ax.patches}
+    assert widths <= {0.0, 0.5, 1.0}
     plt.close(ax.figure)

@@ -16,6 +16,24 @@ DEFAULT_BUBBLE_SCALE = 4000
 # a much smaller multiplier than a fractional metric like xg_per_shot.
 DEFAULT_ASSISTS_BUBBLE_SCALE = 40
 
+# display order + labels for plot_defensive_profile's bars
+_DEFENSIVE_STAT_LABELS = {
+    "tackles": "Tackles",
+    "interceptions": "Interceptions",
+    "clearances": "Clearances",
+    "blocks": "Blocks",
+    "ball_recoveries": "Ball Recoveries",
+    "got_dribbled_past": "Dribbled Past",
+    "fouls_committed": "Fouls Committed",
+    "yellow_cards": "Yellow Cards",
+    "red_cards": "Red Cards",
+}
+
+# stats where a LOWER per-match rate is the better defensive outcome —
+# their bars are drawn from (1 - percentile) so bar length always reads
+# as "how favorable", not "how much of this stat".
+_LOWER_IS_BETTER = {"got_dribbled_past", "fouls_committed", "yellow_cards", "red_cards"}
+
 
 def _resolve_labels_and_colors(
     stats: pd.DataFrame,
@@ -296,3 +314,116 @@ def plot_line_breaking_profile(
         bubble_scale=bubble_scale,
         ax=ax,
     )
+
+
+def plot_defensive_profile(
+    defensive_stats: pd.DataFrame,
+    players: list[str] | None = None,
+    player_labels: dict[str, str] | None = None,
+    player_colors: dict[str, str] | None = None,
+    ax: plt.Axes | None = None,
+) -> plt.Axes:
+    """
+    Horizontal percentile-bar profile of a player's defensive workload —
+    one bar per stat in _DEFENSIVE_STAT_LABELS, rated against the other
+    players in defensive_stats.
+
+    defensive_stats' full set of rows is the peer group each player is
+    percentile-ranked against — pass in everyone worth comparing against
+    (e.g. all centre-backs in a league season), then use `players` to
+    pick which ones actually get drawn. Rates are per matches_played, not
+    raw totals, so players with different appearance counts are ranked
+    fairly.
+
+    Args:
+        defensive_stats: DataFrame from
+            StatsBombClient.get_player_defensive_season, covering the
+            full peer group to rank against.
+        players: Optional list of exact player names to draw (bars are
+            grouped per stat if more than one — keep this to 2-3 players
+            for a readable chart). Defaults to every player in
+            defensive_stats.
+        player_labels: Optional mapping of full StatsBomb player names to
+            short display labels. Purely cosmetic.
+        player_colors: Optional mapping of (possibly relabeled) player
+            name to a matplotlib color. Falls back to the default color
+            cycle for any player without an explicit color.
+        ax: Optional existing Axes to draw on. A new figure/Axes is
+            created if not provided.
+
+    Returns:
+        The Axes the chart was drawn on.
+
+    Raises:
+        DataNotFoundError: If defensive_stats is empty, or none of
+            `players` are found in it.
+    """
+    if defensive_stats.empty:
+        raise DataNotFoundError("defensive_stats is empty — nothing to plot.")
+
+    stat_cols = list(_DEFENSIVE_STAT_LABELS)
+    rates = defensive_stats.copy()
+    rates[stat_cols] = rates[stat_cols].div(rates["matches_played"], axis=0)
+
+    favorability = rates[stat_cols].rank(pct=True)
+    for col in _LOWER_IS_BETTER:
+        favorability[col] = 1 - favorability[col]
+
+    subset = rates if players is None else rates[rates["player"].isin(players)]
+    if subset.empty:
+        raise DataNotFoundError(f"None of {players} found in defensive_stats.")
+    favorability = favorability.loc[subset.index]
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
+
+    labels, colors = _resolve_labels_and_colors(subset, player_labels, player_colors)
+    n_players = len(subset)
+    bar_height = 0.8 / n_players
+    y_positions = range(len(stat_cols))
+
+    for i, ((_, row), (_, fav_row), label) in enumerate(
+        zip(subset.iterrows(), favorability.iterrows(), labels, strict=True)
+    ):
+        offsets = [y - 0.4 + bar_height * (i + 0.5) for y in y_positions]
+        ax.barh(
+            offsets,
+            [fav_row[col] for col in stat_cols],
+            height=bar_height,
+            color=colors[label],
+            label=label,
+            zorder=3,
+        )
+        for y, col in zip(offsets, stat_cols, strict=True):
+            ax.annotate(
+                f"{row[col]:.2f}/match",
+                (fav_row[col], y),
+                xytext=(4, 0),
+                textcoords="offset points",
+                va="center",
+                fontsize=8,
+            )
+
+    ax.set_yticks(list(y_positions))
+    ax.set_yticklabels(
+        [
+            label + (" (lower better)" if col in _LOWER_IS_BETTER else "")
+            for col, label in _DEFENSIVE_STAT_LABELS.items()
+        ]
+    )
+    ax.invert_yaxis()
+    ax.set_xlim(0, 1.15)
+    ax.set_xlabel("Percentile among compared players (higher = stronger)")
+
+    title = "Defensive Profile"
+    if "season_name" in subset.columns:
+        seasons = ", ".join(sorted(subset["season_name"].unique()))
+        title += f" — {seasons}"
+    ax.set_title(title)
+
+    if n_players > 1:
+        ax.legend(loc="lower right", fontsize=9, framealpha=0.9)
+    ax.grid(True, axis="x", alpha=0.25, zorder=0)
+    ax.spines[["top", "right"]].set_visible(False)
+
+    return ax
