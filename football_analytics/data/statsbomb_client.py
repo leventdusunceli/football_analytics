@@ -439,6 +439,18 @@ class StatsBombClient:
             ]
         ]
 
+    _DEFENSIVE_STAT_COLS = [
+        "tackles",
+        "interceptions",
+        "clearances",
+        "blocks",
+        "ball_recoveries",
+        "got_dribbled_past",
+        "fouls_committed",
+        "yellow_cards",
+        "red_cards",
+    ]
+
     def get_player_defensive_match(self, match_id: int) -> pd.DataFrame:
         """
         Fetch defensive stats per player for a specific match.
@@ -447,16 +459,16 @@ class StatsBombClient:
             match_id: StatsBomb match ID.
 
         Returns:
-            DataFrame with columns: player, team, position, tackles,
-            interceptions, clearances.
+            DataFrame with columns: player, team, position, and
+            _DEFENSIVE_STAT_COLS.
 
         Raises:
             DataNotFoundError: If no defensive data found for the given match.
         """
         events = self.get_events(match_id)
 
-        def _count(mask: pd.Series, col_name: str) -> pd.DataFrame:
-            filtered = events[mask]
+        def _count(df: pd.DataFrame, mask: pd.Series, col_name: str) -> pd.DataFrame:
+            filtered = df[mask]
             if filtered.empty:
                 return pd.DataFrame(columns=["player", "team", col_name])
             return (
@@ -471,31 +483,56 @@ class StatsBombClient:
         else:
             is_tackle &= False
 
-        stats = (
-            _count(is_tackle, "tackles")
-            .merge(
-                _count(events["type"] == "Interception", "interceptions"),
-                on=["player", "team"],
-                how="outer",
-            )
-            .merge(
-                _count(events["type"] == "Clearance", "clearances"),
-                on=["player", "team"],
-                how="outer",
-            )
-            .fillna(0)
+        # Cards can be issued on a Foul Committed event or, for misconduct
+        # unrelated to a specific foul (dissent, timewasting), on a Bad
+        # Behaviour event — both card columns must be combined to not
+        # undercount.
+        card_cols = [
+            events[["player", "team", col]].rename(columns={col: "card"})
+            for col in ("foul_committed_card", "bad_behaviour_card")
+            if col in events.columns
+        ]
+        cards = (
+            pd.concat(card_cols, ignore_index=True).dropna(subset=["card"])
+            if card_cols
+            else pd.DataFrame(columns=["player", "team", "card"])
         )
 
-        for col in ["tackles", "interceptions", "clearances"]:
+        stats = _count(events, is_tackle, "tackles")
+        for event_type, col_name in [
+            ("Interception", "interceptions"),
+            ("Clearance", "clearances"),
+            ("Block", "blocks"),
+            ("Ball Recovery", "ball_recoveries"),
+            ("Dribbled Past", "got_dribbled_past"),
+            ("Foul Committed", "fouls_committed"),
+        ]:
+            stats = stats.merge(
+                _count(events, events["type"] == event_type, col_name),
+                on=["player", "team"],
+                how="outer",
+            )
+        # "Second Yellow" is a sending-off (like a straight red), not a
+        # second entry in the yellow-card tally.
+        for card_values, col_name in [
+            (["Yellow Card"], "yellow_cards"),
+            (["Red Card", "Second Yellow"], "red_cards"),
+        ]:
+            stats = stats.merge(
+                _count(cards, cards["card"].isin(card_values), col_name),
+                on=["player", "team"],
+                how="outer",
+            )
+        stats = stats.fillna(0)
+
+        for col in self._DEFENSIVE_STAT_COLS:
             stats[col] = stats[col].astype(int)
 
         if stats.empty:
             raise DataNotFoundError(f"No defensive data found for match {match_id}.")
 
         stats = stats.merge(self._primary_positions(events), on=["player", "team"])
-        return stats[
-            ["player", "team", "position", "tackles", "interceptions", "clearances"]
-        ]
+        return stats[["player", "team", "position"] + self._DEFENSIVE_STAT_COLS]
 
     def get_player_goals_assists_match(self, match_id: int) -> pd.DataFrame:
         """
@@ -759,7 +796,7 @@ class StatsBombClient:
             competition_id: StatsBomb competition ID.
             season_ids: A single StatsBomb season ID or a list of them.
             players: Optional list of exact player names to filter for.
-                     Significantly faster than loading all players.
+                    Significantly faster than loading all players.
 
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
@@ -830,11 +867,11 @@ class StatsBombClient:
             competition_id: StatsBomb competition ID.
             season_ids: A single StatsBomb season ID or a list of them.
             players: Optional list of exact player names to filter for.
-                     Significantly faster than loading all players.
+                    Significantly faster than loading all players.
 
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
-            matches_played, position, tackles, interceptions, clearances.
+            matches_played, position, and _DEFENSIVE_STAT_COLS.
             matches_played is the number of matches in the open dataset
             that contributed to this row — see get_player_shooting_season
             for why that matters.
@@ -850,9 +887,7 @@ class StatsBombClient:
             raw_data.groupby(group_cols)
             .agg(
                 matches_played=("player", "count"),
-                tackles=("tackles", "sum"),
-                interceptions=("interceptions", "sum"),
-                clearances=("clearances", "sum"),
+                **{col: (col, "sum") for col in self._DEFENSIVE_STAT_COLS},
             )
             .reset_index()
         )
@@ -861,17 +896,8 @@ class StatsBombClient:
             on=group_cols[:3],
         )
         season_stats = season_stats[
-            [
-                "player",
-                "team",
-                "season_id",
-                "season_name",
-                "matches_played",
-                "position",
-                "tackles",
-                "interceptions",
-                "clearances",
-            ]
+            ["player", "team", "season_id", "season_name", "matches_played", "position"]
+            + self._DEFENSIVE_STAT_COLS
         ]
         return season_stats.sort_values(
             ["season_id", "tackles"], ascending=[True, False]

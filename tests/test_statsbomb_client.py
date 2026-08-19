@@ -800,6 +800,71 @@ def test_get_player_passing_season_includes_assists(
 
 
 # ------------------------------------------------------------------ #
+# get_player_defensive_season (multi-season)                           #
+# ------------------------------------------------------------------ #
+
+
+def test_get_player_defensive_season_sums_new_stats_across_matches(
+    client, sample_competitions_df, multi_season_matches, multi_season_lineups
+):
+    """Regression test: blocks/ball_recoveries/got_dribbled_past/
+    fouls_committed/cards must be summed at the season level, not just
+    tackles/interceptions/clearances."""
+
+    def _defensive_row(event_type, card=None):
+        return {
+            "type": event_type,
+            "player": "Odegaard",
+            "position": "Center Midfield",
+            "team": "Arsenal",
+            "minute": 10,
+            "period": 1,
+            "foul_committed_card": card,
+        }
+
+    events_by_match = {
+        101: pd.DataFrame(
+            [_defensive_row("Block"), _defensive_row("Foul Committed", "Yellow Card")]
+        ),
+        102: pd.DataFrame(
+            [
+                _defensive_row("Ball Recovery"),
+                _defensive_row("Foul Committed", "Red Card"),
+            ]
+        ),
+    }
+
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            side_effect=lambda competition_id, season_id: multi_season_matches[
+                season_id
+            ],
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            side_effect=lambda match_id: multi_season_lineups[match_id],
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            side_effect=lambda match_id: events_by_match[match_id],
+        ),
+    ):
+        result = client.get_player_defensive_season(competition_id=11, season_ids=1)
+
+    odegaard_row = result[result["player"] == "Odegaard"].iloc[0]
+    assert odegaard_row["blocks"] == 1
+    assert odegaard_row["ball_recoveries"] == 1
+    assert odegaard_row["fouls_committed"] == 2
+    assert odegaard_row["yellow_cards"] == 1
+    assert odegaard_row["red_cards"] == 1
+
+
+# ------------------------------------------------------------------ #
 # get_player_goals_assists_season (multi-season)                       #
 # ------------------------------------------------------------------ #
 
@@ -1118,6 +1183,182 @@ def test_get_player_defensive_match_missing_duel_type_column(client):
 
     saka_row = result[result["player"] == "Saka"].iloc[0]
     assert saka_row["tackles"] == 0
+
+
+@pytest.fixture
+def defensive_events_df():
+    """One event per new defensive stat, each by a different player so
+    each column can be checked independently."""
+    return pd.DataFrame(
+        {
+            "type": [
+                "Block",
+                "Ball Recovery",
+                "Dribbled Past",
+                "Foul Committed",
+                "Foul Committed",
+                "Foul Committed",
+                "Bad Behaviour",
+            ],
+            "player": [
+                "Saka",
+                "Odegaard",
+                "Havertz",
+                "White",
+                "White",
+                "Palmer",
+                "Trossard",
+            ],
+            "position": [
+                "Right Wing",
+                "Center Midfield",
+                "Center Forward",
+                "Right Back",
+                "Right Back",
+                "Center Forward",
+                "Left Wing",
+            ],
+            "team": [
+                "Arsenal",
+                "Arsenal",
+                "Arsenal",
+                "Arsenal",
+                "Arsenal",
+                "Chelsea",
+                "Arsenal",
+            ],
+            "minute": [10, 20, 30, 40, 50, 60, 70],
+            "period": [1, 1, 1, 1, 1, 2, 2],
+            "foul_committed_card": [
+                None,
+                None,
+                None,
+                "Yellow Card",
+                "Second Yellow",
+                "Red Card",
+                None,
+            ],
+            "bad_behaviour_card": [None, None, None, None, None, None, "Yellow Card"],
+        }
+    )
+
+
+def test_get_player_defensive_match_counts_blocks(client, defensive_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=defensive_events_df,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    saka_row = result[result["player"] == "Saka"].iloc[0]
+    assert saka_row["blocks"] == 1
+
+
+def test_get_player_defensive_match_counts_ball_recoveries(client, defensive_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=defensive_events_df,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    odegaard_row = result[result["player"] == "Odegaard"].iloc[0]
+    assert odegaard_row["ball_recoveries"] == 1
+
+
+def test_get_player_defensive_match_counts_got_dribbled_past(
+    client, defensive_events_df
+):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=defensive_events_df,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    havertz_row = result[result["player"] == "Havertz"].iloc[0]
+    assert havertz_row["got_dribbled_past"] == 1
+
+
+def test_get_player_defensive_match_counts_fouls_committed(
+    client, defensive_events_df
+):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=defensive_events_df,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    # White commits 2 fouls (one carded Yellow, one Second Yellow)
+    white_row = result[result["player"] == "White"].iloc[0]
+    assert white_row["fouls_committed"] == 2
+
+
+def test_get_player_defensive_match_second_yellow_counts_as_red(
+    client, defensive_events_df
+):
+    """A "Second Yellow" is a sending-off, and must land in red_cards, not
+    add a second entry to yellow_cards."""
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=defensive_events_df,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    white_row = result[result["player"] == "White"].iloc[0]
+    assert white_row["yellow_cards"] == 1
+    assert white_row["red_cards"] == 1
+
+
+def test_get_player_defensive_match_straight_red_card(client, defensive_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=defensive_events_df,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    palmer_row = result[result["player"] == "Palmer"].iloc[0]
+    assert palmer_row["red_cards"] == 1
+    assert palmer_row["yellow_cards"] == 0
+
+
+def test_get_player_defensive_match_counts_bad_behaviour_cards(
+    client, defensive_events_df
+):
+    """Regression test: cards for misconduct not tied to a specific foul
+    (e.g. dissent) are recorded on a Bad Behaviour event, via
+    bad_behaviour_card rather than foul_committed_card, and must still be
+    counted."""
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=defensive_events_df,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    trossard_row = result[result["player"] == "Trossard"].iloc[0]
+    assert trossard_row["yellow_cards"] == 1
+
+
+def test_get_player_defensive_match_missing_card_columns(client):
+    """Both card columns are sparse StatsBomb columns, omitted entirely
+    when no cards occurred in the match — this must not crash."""
+    events_without_card_cols = pd.DataFrame(
+        {
+            "type": ["Interception"],
+            "player": ["Saka"],
+            "position": ["Right Wing"],
+            "team": ["Arsenal"],
+            "minute": [40],
+            "period": [1],
+        }
+    )
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=events_without_card_cols,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    saka_row = result[result["player"] == "Saka"].iloc[0]
+    assert saka_row["yellow_cards"] == 0
+    assert saka_row["red_cards"] == 0
 
 
 # ------------------------------------------------------------------ #
