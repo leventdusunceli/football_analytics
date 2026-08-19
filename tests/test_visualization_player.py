@@ -188,28 +188,28 @@ def test_plot_defensive_profile_unknown_player_raises_error(sample_defensive_sta
         plot_defensive_profile(sample_defensive_stats, players=["Nobody"])
 
 
-def test_plot_defensive_profile_higher_stat_gets_longer_bar(sample_defensive_stats):
-    """Regression test: for a "higher is better" stat, the player with the
-    higher per-match rate must get the longer (more favorable) bar."""
+def test_plot_defensive_profile_bar_widths_are_raw_season_totals(
+    sample_defensive_stats,
+):
+    """Regression test: bar length must be the raw season total, not a
+    per-match rate or percentile — Busquets' 60 tackles must plot as 60,
+    not 2.0 (60/30 matches) or a 0-1 percentile."""
     ax = plot_defensive_profile(sample_defensive_stats)
-    # tackles is the first stat row (y offsets near 0); Busquets' bar
-    # (2 tackles/match) must be longer than Kante's (1 tackle/match).
+    # tackles is the first stat row (y offsets near 0).
     tackle_bars = sorted(
         (p for p in ax.patches if -0.5 <= p.get_y() <= 0.5), key=lambda p: p.get_y()
     )
     assert len(tackle_bars) == 2
     busquets_bar, kante_bar = tackle_bars
-    assert busquets_bar.get_width() > kante_bar.get_width()
+    assert busquets_bar.get_width() == 60
+    assert kante_bar.get_width() == 30
     plt.close(ax.figure)
 
 
-def test_plot_defensive_profile_lower_is_better_flips_favorability(
-    sample_defensive_stats,
-):
-    """Regression test: for a "lower is better" stat (fouls_committed),
-    the player with the LOWER per-match rate must get the longer
-    (more favorable) bar — a naive percentile-of-raw-value bar would get
-    this backwards."""
+def test_plot_defensive_profile_lower_is_better_not_inverted(sample_defensive_stats):
+    """Regression test: "lower is better" stats (e.g. fouls_committed)
+    must still plot their raw total as-is, not an inverted/flipped value
+    — flipping was a percentile-only concern that no longer applies."""
     ax = plot_defensive_profile(sample_defensive_stats)
     # fouls_committed is the 7th stat (0-indexed row 6).
     fouls_bars = sorted(
@@ -217,16 +217,16 @@ def test_plot_defensive_profile_lower_is_better_flips_favorability(
     )
     assert len(fouls_bars) == 2
     busquets_bar, kante_bar = fouls_bars
-    # Busquets commits fewer fouls/match (10/30) than Kante (20/30), so
-    # Busquets' bar should be the more favorable (longer) one.
-    assert busquets_bar.get_width() > kante_bar.get_width()
+    assert busquets_bar.get_width() == 10
+    assert kante_bar.get_width() == 20
     plt.close(ax.figure)
 
 
-def test_plot_defensive_profile_bar_lengths_are_percentiles(sample_defensive_stats):
-    """With exactly 2 players, favorability bars must be 0.0/1.0 (or a
-    0.5/0.5 tie) — anything else means the percentile math is off."""
+def test_plot_defensive_profile_legend_includes_matches_played(
+    sample_defensive_stats,
+):
     ax = plot_defensive_profile(sample_defensive_stats)
-    widths = {round(p.get_width(), 3) for p in ax.patches}
-    assert widths <= {0.0, 0.5, 1.0}
+    legend_labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert "Busquets (30 matches)" in legend_labels
+    assert "Kante (30 matches)" in legend_labels
     plt.close(ax.figure)

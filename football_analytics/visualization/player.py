@@ -324,21 +324,12 @@ def plot_defensive_profile(
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
     """
-    Horizontal percentile-bar profile of a player's defensive workload —
-    one bar per stat in _DEFENSIVE_STAT_LABELS, rated against the other
-    players in defensive_stats.
-
-    defensive_stats' full set of rows is the peer group each player is
-    percentile-ranked against — pass in everyone worth comparing against
-    (e.g. all centre-backs in a league season), then use `players` to
-    pick which ones actually get drawn. Rates are per matches_played, not
-    raw totals, so players with different appearance counts are ranked
-    fairly.
+    Horizontal bar chart of season defensive totals, one bar per stat in
+    _DEFENSIVE_STAT_LABELS.
 
     Args:
         defensive_stats: DataFrame from
-            StatsBombClient.get_player_defensive_season, covering the
-            full peer group to rank against.
+            StatsBombClient.get_player_defensive_season.
         players: Optional list of exact player names to draw (bars are
             grouped per stat if more than one — keep this to 2-3 players
             for a readable chart). Defaults to every player in
@@ -361,43 +352,37 @@ def plot_defensive_profile(
     if defensive_stats.empty:
         raise DataNotFoundError("defensive_stats is empty — nothing to plot.")
 
-    stat_cols = list(_DEFENSIVE_STAT_LABELS)
-    rates = defensive_stats.copy()
-    rates[stat_cols] = rates[stat_cols].div(rates["matches_played"], axis=0)
-
-    favorability = rates[stat_cols].rank(pct=True)
-    for col in _LOWER_IS_BETTER:
-        favorability[col] = 1 - favorability[col]
-
-    subset = rates if players is None else rates[rates["player"].isin(players)]
+    subset = (
+        defensive_stats
+        if players is None
+        else defensive_stats[defensive_stats["player"].isin(players)]
+    )
     if subset.empty:
         raise DataNotFoundError(f"None of {players} found in defensive_stats.")
-    favorability = favorability.loc[subset.index]
 
     if ax is None:
         _, ax = plt.subplots(figsize=(7, 5))
 
+    stat_cols = list(_DEFENSIVE_STAT_LABELS)
     labels, colors = _resolve_labels_and_colors(subset, player_labels, player_colors)
     n_players = len(subset)
     bar_height = 0.8 / n_players
     y_positions = range(len(stat_cols))
 
-    for i, ((_, row), (_, fav_row), label) in enumerate(
-        zip(subset.iterrows(), favorability.iterrows(), labels, strict=True)
-    ):
+    for i, ((_, row), label) in enumerate(zip(subset.iterrows(), labels, strict=True)):
         offsets = [y - 0.4 + bar_height * (i + 0.5) for y in y_positions]
         ax.barh(
             offsets,
-            [fav_row[col] for col in stat_cols],
+            [row[col] for col in stat_cols],
             height=bar_height,
             color=colors[label],
-            label=label,
+            label=f"{label} ({row['matches_played']} matches)",
             zorder=3,
         )
         for y, col in zip(offsets, stat_cols, strict=True):
             ax.annotate(
-                f"{row[col]:.2f}/match",
-                (fav_row[col], y),
+                str(row[col]),
+                (row[col], y),
                 xytext=(4, 0),
                 textcoords="offset points",
                 va="center",
@@ -412,8 +397,8 @@ def plot_defensive_profile(
         ]
     )
     ax.invert_yaxis()
-    ax.set_xlim(0, 1.15)
-    ax.set_xlabel("Percentile among compared players (higher = stronger)")
+    ax.margins(x=0.15)
+    ax.set_xlabel("Season total")
 
     title = "Defensive Profile"
     if "season_name" in subset.columns:
