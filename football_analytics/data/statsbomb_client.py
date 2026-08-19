@@ -455,23 +455,31 @@ class StatsBombClient:
         """
         events = self.get_events(match_id)
 
-        def _count_events(event_type: str, col_name: str) -> pd.DataFrame:
-            filtered = events[events["type"] == event_type]
+        def _count(mask: pd.Series, col_name: str) -> pd.DataFrame:
+            filtered = events[mask]
             if filtered.empty:
                 return pd.DataFrame(columns=["player", "team", col_name])
             return (
                 filtered.groupby(["player", "team"]).size().reset_index(name=col_name)
             )
 
+        # Tackles aren't their own event type — they're Duels with
+        # duel_type == "Tackle" (as opposed to "Aerial Lost").
+        is_tackle = events["type"] == "Duel"
+        if "duel_type" in events.columns:
+            is_tackle &= events["duel_type"] == "Tackle"
+        else:
+            is_tackle &= False
+
         stats = (
-            _count_events("Tackle", "tackles")
+            _count(is_tackle, "tackles")
             .merge(
-                _count_events("Interception", "interceptions"),
+                _count(events["type"] == "Interception", "interceptions"),
                 on=["player", "team"],
                 how="outer",
             )
             .merge(
-                _count_events("Clearance", "clearances"),
+                _count(events["type"] == "Clearance", "clearances"),
                 on=["player", "team"],
                 how="outer",
             )

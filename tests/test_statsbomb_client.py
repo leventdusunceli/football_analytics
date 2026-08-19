@@ -62,7 +62,9 @@ def sample_events_df():
     """Fake events DataFrame mimicking statsbombpy output."""
     return pd.DataFrame(
         {
-            "type": ["Shot", "Pass", "Shot", "Tackle", "Shot"],
+            # White's row is a Duel of duel_type "Tackle" — StatsBomb has no
+            # standalone "Tackle" event type.
+            "type": ["Shot", "Pass", "Shot", "Duel", "Shot"],
             "player": ["Saka", "Odegaard", "Havertz", "White", "Palmer"],
             "position": [
                 "Right Wing",
@@ -79,6 +81,7 @@ def sample_events_df():
             "pass_outcome": [None, None, None, None, None],
             "pass_switch": [None, False, None, None, None],
             "pass_goal_assist": [None, False, None, None, None],
+            "duel_type": [None, None, None, "Tackle", None],
             "location": [
                 [110.0, 38.0],
                 [60.0, 40.0],
@@ -1051,6 +1054,70 @@ def test_get_player_defensive_match_passes_match_id(client, sample_events_df):
     ) as mock_events:
         client.get_player_defensive_match(match_id=42)
         mock_events.assert_called_once_with(match_id=42)
+
+
+def test_get_player_defensive_match_counts_tackles_from_duel_events(
+    client, sample_events_df
+):
+    """Regression test: StatsBomb has no standalone "Tackle" event type —
+    tackles are type == "Duel" with duel_type == "Tackle". sample_events_df
+    has exactly one such Duel, for White."""
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_events_df,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    white_row = result[result["player"] == "White"].iloc[0]
+    assert white_row["tackles"] == 1
+
+
+def test_get_player_defensive_match_excludes_non_tackle_duels(client):
+    """A Duel with duel_type "Aerial Lost" is not a tackle and must not be
+    counted as one."""
+    events = pd.DataFrame(
+        {
+            "type": ["Duel", "Interception"],
+            "player": ["White", "Saka"],
+            "position": ["Right Back", "Right Wing"],
+            "team": ["Arsenal", "Arsenal"],
+            "minute": [30, 40],
+            "period": [1, 1],
+            "duel_type": ["Aerial Lost", None],
+        }
+    )
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=events,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    assert "White" not in result["player"].values
+    saka_row = result[result["player"] == "Saka"].iloc[0]
+    assert saka_row["interceptions"] == 1
+
+
+def test_get_player_defensive_match_missing_duel_type_column(client):
+    """StatsBomb omits duel_type entirely when no duel occurred at all in
+    the match — this must not crash, just report 0 tackles."""
+    events_without_duel_type_col = pd.DataFrame(
+        {
+            "type": ["Interception"],
+            "player": ["Saka"],
+            "position": ["Right Wing"],
+            "team": ["Arsenal"],
+            "minute": [40],
+            "period": [1],
+        }
+    )
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=events_without_duel_type_col,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    saka_row = result[result["player"] == "Saka"].iloc[0]
+    assert saka_row["tackles"] == 0
 
 
 # ------------------------------------------------------------------ #
