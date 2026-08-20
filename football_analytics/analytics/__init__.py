@@ -4,11 +4,6 @@ from football_analytics.analytics.form import (
     get_recent_form,
 )
 from football_analytics.analytics.passing import get_team_passing_summary
-from football_analytics.analytics.player import (
-    add_per_90_columns,
-    get_top_performers,
-    per_90,
-)
 from football_analytics.analytics.standings import (
     get_clean_standings,
     get_expected_vs_actual,
@@ -29,7 +24,4 @@ __all__ = [
     "get_team_passing_summary",
     "get_clean_standings",
     "get_expected_vs_actual",
-    "get_top_performers",
-    "add_per_90_columns",
-    "per_90",
 ]
