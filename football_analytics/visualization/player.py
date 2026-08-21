@@ -9,7 +9,7 @@ import pandas as pd
 from football_analytics.utils.exceptions import DataNotFoundError
 
 # default multiplier turning a small metric (e.g. xg_per_shot ~ 0.1-0.3)
-# into a visible bubble area in points^2 — tune per-metric if needed.
+# into a visible bubble area in points^2, tune per-metric if needed.
 DEFAULT_BUBBLE_SCALE = 4000
 
 # assists are small integer counts (single digits to low tens), so they need
@@ -29,7 +29,7 @@ _DEFENSIVE_STAT_LABELS = {
     "red_cards": "Red Cards",
 }
 
-# stats where a LOWER per-match rate is the better defensive outcome —
+# stats where a LOWER per-match rate is the better defensive outcome:
 # their bars are drawn from (1 - percentile) so bar length always reads
 # as "how favorable", not "how much of this stat".
 _LOWER_IS_BETTER = {"got_dribbled_past", "fouls_committed", "yellow_cards", "red_cards"}
@@ -84,7 +84,7 @@ def plot_shooting_profile(
             StatsBombClient.get_player_shooting_season.
         player_labels: Optional mapping of full StatsBomb player names to
             short display labels (e.g. {"Lionel Andrés Messi Cuccittini":
-            "Messi"}). Purely cosmetic — the input DataFrame is not mutated.
+            "Messi"}). Purely cosmetic, the input DataFrame is not mutated.
         player_colors: Optional mapping of (possibly relabeled) player name
             to a matplotlib color. Any player not present in the mapping
             falls back to matplotlib's default color cycle.
@@ -101,7 +101,7 @@ def plot_shooting_profile(
         DataNotFoundError: If shooting_stats is empty.
     """
     if shooting_stats.empty:
-        raise DataNotFoundError("shooting_stats is empty — nothing to plot.")
+        raise DataNotFoundError("shooting_stats is empty, nothing to plot.")
 
     if ax is None:
         _, ax = plt.subplots(figsize=(6, 5))
@@ -110,7 +110,7 @@ def plot_shooting_profile(
         shooting_stats, player_labels, player_colors
     )
     # season_ids is often a single season, but get_player_shooting_season
-    # can span several — disambiguate annotations if more than one is present.
+    # can span several. Disambiguate annotations if more than one is present.
     multi_season = (
         "season_name" in shooting_stats.columns
         and shooting_stats["season_name"].nunique() > 1
@@ -164,14 +164,14 @@ def _plot_passing_bubble_chart(
 ) -> plt.Axes:
     """
     Internal helper shared by plot_passing_profile and
-    plot_line_breaking_profile — both are the same chart shape (a passing
+    plot_line_breaking_profile. Both are the same chart shape (a passing
     volume metric vs. completion rate, bubble size = assists), differing
     only in which column drives the x-axis. Assists come straight from
     passing_stats (StatsBombClient.get_player_passing_season already
-    includes them) — no separate goals/assists DataFrame needed.
+    includes them). No separate goals/assists DataFrame needed.
     """
     if passing_stats.empty:
-        raise DataNotFoundError("passing_stats is empty — nothing to plot.")
+        raise DataNotFoundError("passing_stats is empty, nothing to plot.")
 
     if ax is None:
         _, ax = plt.subplots(figsize=(6, 5))

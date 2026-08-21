@@ -25,7 +25,7 @@ def _build_title(events: pd.DataFrame, chart_label: str) -> str:
     a single player if the data was pre-filtered to one, else a single
     team, else a generic fallback. This is what lets plot_passing_map and
     plot_shot_map serve both a whole-team and a single-player view with
-    no extra parameters — the caller controls scope by how they filtered
+    no extra parameters. The caller controls scope by how they filtered
     StatsBombClient.get_passes()/get_shots(), not by anything passed to
     the plotting function itself.
     """
@@ -61,7 +61,7 @@ def plot_passing_map(
     highlighted categories on top: progressive, line-breaking, assist.
     Team-level input skips the full pass volume and draws only the three
     categories, to avoid clutter. Level is inferred the same way as
-    _build_title (single player vs. not) — pass a player-filtered or
+    _build_title (single player vs. not): pass a player-filtered or
     team-filtered StatsBombClient.get_passes() result to control it.
 
     A pass can belong to more than one category (e.g. progressive and an
@@ -84,7 +84,7 @@ def plot_passing_map(
         DataNotFoundError: If passes is empty.
     """
     if passes.empty:
-        raise DataNotFoundError("passes is empty — nothing to plot.")
+        raise DataNotFoundError("passes is empty, nothing to plot.")
 
     colors = {**DEFAULT_PASSING_COLORS, **(colors or {})}
     pitch, ax = _draw_pitch(ax)
@@ -155,7 +155,7 @@ def plot_shot_map(
         DataNotFoundError: If shots is empty.
     """
     if shots.empty:
-        raise DataNotFoundError("shots is empty — nothing to plot.")
+        raise DataNotFoundError("shots is empty, nothing to plot.")
 
     pitch, ax = _draw_pitch(ax)
 
