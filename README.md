@@ -10,7 +10,7 @@ In modern football, statistical analysis is central to how clubs scout players, 
 for matches, and evaluate performance. `football-analytics` pulls data from two
 complementary sources, StatsBomb's open event data and the football-data.org REST API,
 normalizes it into pandas DataFrames, and layers analytics and visualization tools on
-top. It allows us to visualize data from match and season level. 
+top. It allows us to visualize data from match and season level.
 
 This is a portfolio project: the goal is to demonstrate practical package design,
 testing discipline, and data engineering judgment.
