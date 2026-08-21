@@ -1,10 +1,7 @@
 """
-StatsBomb open data client
-Retrieves ....
+StatsBomb open data client.
+Retrieves match, season, and player statistics via the statsbombpy library.
 """
-# TODO: integrate visualizations into the method itself or create a visualization script
-# TODO:  add across leagues comparison feature 
-
 
 import time
 
@@ -18,28 +15,20 @@ _NETWORK_RETRY_ATTEMPTS = 3
 _NETWORK_RETRY_BACKOFF_SECONDS = 1.0
 
 
-
 def _with_retries(fn, *args, **kwargs):
     """
-    Call fn, retrying on transient network failures before giving up.
-
-    statsbombpy fetches StatsBomb's open data as static JSON files over
-    HTTP for every match/season call, so a single dropped connection can
-    otherwise abort an entire multi-match aggregation (e.g. a 380-match
-    season) even after most matches already succeeded. A persistent
-    outage still raises after all retries are exhausted, rather than
-    silently returning partial data as if it were complete.
+    Retry fn on a transient network error before giving up; still raises
+    if every attempt fails, rather than silently returning partial data.
 
     Args:
-        fn: The statsbombpy function to call (e.g. sb.events).
+        fn: The statsbombpy function to call.
         *args, **kwargs: Passed through to fn.
 
     Returns:
         Whatever fn returns.
 
     Raises:
-        requests.exceptions.ConnectionError | requests.exceptions.Timeout:
-            If every retry attempt fails.
+        requests.exceptions.ConnectionError | requests.exceptions.Timeout
     """
     last_error = None
     for attempt in range(_NETWORK_RETRY_ATTEMPTS):
@@ -54,8 +43,8 @@ def _with_retries(fn, *args, **kwargs):
 
 class StatsBombClient:
     """
-    Wraps the statsbombpy library for access to StatsBomb openn data.
-    No API key required for access, statsbombpy library handles connection and authentication
+    Wraps the statsbombpy library for access to StatsBomb open data.
+    No API key required, statsbombpy handles connection and authentication.
     """
 
     def get_competitions(self) -> pd.DataFrame:
@@ -123,9 +112,8 @@ class StatsBombClient:
             match_id: StatsBomb match ID.
 
         Returns:
-            DataFrame of all events in the match, with players shown under their known
-            names and their positions where available (e.g. Luis Suarez instead of
-            Luis Alberto Suárez Díaz)
+            DataFrame of all events, with players under their known names
+            (e.g. "Luis Suarez" not "Luis Alberto Suárez Díaz").
 
         Raises:
             DataNotFoundError: If no events are found for the given match.
@@ -150,26 +138,20 @@ class StatsBombClient:
         player: str | None = None,
     ) -> pd.DataFrame:
         """
-        Fetch all shot events for a specific match, including xG values
-        and start/end locations for visualization.
+        Fetch all shot events for a match, including xG and start/end locations.
 
         Args:
             match_id: StatsBomb match ID.
-            team: Optional exact team name to filter to a single team's
-                shots.
-            player: Optional exact player name to filter to a single
-                player's shots.
+            team: Optional exact team name to filter to one team's shots.
+            player: Optional exact player name to filter to one player's shots.
 
         Returns:
-            DataFrame of shots with columns: player, team, position,
-            minute, period, location, shot_end_location,
-            shot_statsbomb_xg, shot_outcome. location and
-            shot_end_location are [x, y] (shot_end_location is
-            sometimes [x, y, z] when the shot's height was tracked).
+            DataFrame with columns: player, team, position, minute, period,
+            location, shot_end_location, shot_statsbomb_xg, shot_outcome.
+            shot_end_location is [x, y, z] when shot height was tracked.
 
         Raises:
-            DataNotFoundError: If no shots are found for the given match,
-                or none match the team/player filter.
+            DataNotFoundError: If no shots match.
         """
         events = self.get_events(match_id)
         shots = events[events["type"] == "Shot"]
@@ -210,31 +192,25 @@ class StatsBombClient:
         player: str | None = None,
     ) -> pd.DataFrame:
         """
-        Fetch all pass events for a specific match, with start/end
-        locations and pass-classification flags for visualization.
+        Fetch all pass events for a match, with start/end locations and
+        pass-classification flags.
 
         is_progressive means the pass ends at least 25% closer to the
-        center of the opponent's goal than it started — a simplified,
-        single-threshold version of the public "progressive pass" concept
-        (StatsBomb has no direct tag for this, so it's computed from
-        location/pass_end_location).
+        opponent's goal than it started (StatsBomb has no direct tag for
+        this, so it's computed from location/pass_end_location).
 
         Args:
             match_id: StatsBomb match ID.
-            team: Optional exact team name to filter to a single team's
-                passes.
-            player: Optional exact player name to filter to a single
-                player's passes.
+            team: Optional exact team name to filter to one team's passes.
+            player: Optional exact player name to filter to one player's passes.
 
         Returns:
-            DataFrame of passes with columns: player, team, position,
-            minute, period, location, pass_end_location, pass_outcome,
-            pass_through_ball, pass_goal_assist, is_progressive. location
-            and pass_end_location are [x, y].
+            DataFrame with columns: player, team, position, minute, period,
+            location, pass_end_location, pass_outcome, pass_through_ball,
+            pass_goal_assist, is_progressive.
 
         Raises:
-            DataNotFoundError: If no passes are found for the given
-                match, or none match the team/player filter.
+            DataNotFoundError: If no passes match.
         """
         events = self.get_events(match_id)
         passes = events[events["type"] == "Pass"]
@@ -298,24 +274,19 @@ class StatsBombClient:
         """
         Determine each player's most common position within a set of events.
 
-        StatsBomb records `position` per event, reflecting whatever role a
-        player was in at that moment — it can change within a single match
-        (tactical shifts, injuries) and across matches in a season. Using it
-        directly as a groupby key fragments one player's stats into multiple
-        rows. This picks the most frequently recorded position per group as
-        a single representative label instead.
+        Position can change within a match (tactical shifts, injuries) and
+        across a season, so using it directly as a groupby key would fragment
+        one player's stats into multiple rows; this picks the most frequent
+        position per group as a single label instead.
 
         Args:
-            events: Any DataFrame containing position and group_cols columns
-                (e.g. events, shots, or concatenated match/season stats).
-            group_cols: Columns identifying a single player. Defaults to
+            events: Any DataFrame with position and group_cols columns.
+            group_cols: Columns identifying a player. Defaults to
                 ["player", "team"]; pass ["player", "team", "season_id"]
-                when aggregating across multiple seasons so position is
-                resolved per season rather than across all of them.
+                for multi-season aggregation so position resolves per season.
 
         Returns:
-            DataFrame with group_cols plus a position column — one row per
-            group.
+            DataFrame with group_cols plus a position column, one row per group.
         """
         group_cols = group_cols or ["player", "team"]
         return (
@@ -372,20 +343,13 @@ class StatsBombClient:
         """
         Fetch passing stats per player for a specific match.
 
-        progressive_passes counts passes that end at least 25% closer to the
-        center of the opponent's goal than they started, a simplified,
-        single-threshold version of the "progressive pass" concept used in
-        public football analytics. StatsBomb's open data has no direct
-        progressive-pass tag, so this is computed from
-        location/pass_end_location.
+        progressive_passes: passes ending 25% closer to the opponent's goal
+        than they started (StatsBomb has no direct tag, so it's computed
+        from location/pass_end_location).
 
-        line_breaking_passes counts passes StatsBomb tags as
-        pass_through_ball, a pass threaded through or behind the defensive
-        line into space. This is used as-is rather than computed from
-        geometry, since detecting a genuine line break requires knowing
-        defender positions at the moment of the pass, which isn't
-        available in this dataset outside StatsBomb's separate, limited
-        360 freeze-frame data.
+        line_breaking_passes: StatsBomb's pass_through_ball tag, used as-is
+        since detecting a real line break needs defender positions, which
+        aren't available outside StatsBomb's separate 360 freeze-frame data.
 
         Args:
             match_id: StatsBomb match ID.
@@ -412,7 +376,7 @@ class StatsBombClient:
                 # pass_through_ball/pass_goal_assist, like other sparse
                 # StatsBomb flags, are only ever True or NaN (never an
                 # explicit False), so they must be fillna(False) before
-                # summing — dtype is object, not bool.
+                # summing. dtype is object, not bool.
                 line_breaking_passes=(
                     "pass_through_ball",
                     lambda x: x.fillna(False).sum(),
@@ -475,7 +439,7 @@ class StatsBombClient:
                 filtered.groupby(["player", "team"]).size().reset_index(name=col_name)
             )
 
-        # Tackles aren't their own event type — they're Duels with
+        # Tackles aren't their own event type in StatsBomb daata, they're Duels with
         # duel_type == "Tackle" (as opposed to "Aerial Lost").
         is_tackle = events["type"] == "Duel"
         if "duel_type" in events.columns:
@@ -485,7 +449,7 @@ class StatsBombClient:
 
         # Cards can be issued on a Foul Committed event or, for misconduct
         # unrelated to a specific foul (dissent, timewasting), on a Bad
-        # Behaviour event — both card columns must be combined to not
+        # Behaviour event. Both card columns must be combined to not
         # undercount.
         card_cols = [
             events[["player", "team", col]].rename(columns={col: "card"})
@@ -538,16 +502,11 @@ class StatsBombClient:
         """
         Fetch goals and assists per player for a specific match.
 
-        Every player who actually appeared in the match gets a row, with
-        goals/assists zero-filled by default. Unlike shots or passes,
-        goals and assists are sparse — most players record zero of both
-        in most matches they play — so building this DataFrame only from
-        scorers/assisters (the way get_shots/get_passes build theirs from
-        shot-takers/passers) would make matches_played in
-        get_player_goals_assists_season() count only matches where a
-        player scored or assisted, silently undercounting real
-        appearances. sb.lineups' per-player `positions` list is the
-        appearance signal: an empty list means an unused substitute.
+        Every player who appeared gets a row, zero-filled by default, since
+        building this only from scorers/assisters would undercount real
+        appearances in get_player_goals_assists_season()'s matches_played.
+        sb.lineups' positions list is the appearance signal; an empty list
+        means an unused substitute.
 
         Args:
             match_id: StatsBomb match ID.
@@ -627,24 +586,19 @@ class StatsBombClient:
         """
         Internal helper that iterates over matches across one or more
         seasons, calls the given match-level stat method, and aggregates
-        results. Each row is tagged with `season_id` and `season_name` so
-        callers can distinguish stats from different seasons.
+        results. Each row is tagged with `season_id` and `season_name`.
 
-        When players is provided, only matches where those players appeared
-        are processed — significantly reducing the number of API calls.
-        When teams is provided, only matches involving those teams are
-        processed — a cheaper filter than players since it only needs the
-        matches DataFrame, not per-match lineups.
+        teams is a cheaper filter than players: it only needs the matches
+        DataFrame, not per-match lineups.
 
         Args:
             competition_id: StatsBomb competition ID.
             season_ids: A single StatsBomb season ID or a list of them.
             match_stat_method: A bound match-level stat method from this class.
-            players: Optional list of exact player names to filter for.
-                     When provided only matches containing those players
-                     are loaded, skipping all irrelevant matches.
-            teams: Optional list of exact team names to filter for. When
-                     provided only matches involving those teams are loaded.
+            players: Optional list of exact player names; skips matches they
+                didn't appear in.
+            teams: Optional list of exact team names; skips matches they
+                didn't play in.
 
         Returns:
             Aggregated DataFrame across relevant matches and seasons, with
@@ -652,7 +606,7 @@ class StatsBombClient:
 
         Raises:
             DataNotFoundError: If no matches or stats are found across any
-            of the requested seasons.
+                of the requested seasons.
         """
         if isinstance(season_ids, int):
             season_ids = [season_ids]
@@ -680,9 +634,7 @@ class StatsBombClient:
                 for _, match in matches.iterrows():
                     lineups = _with_retries(sb.lineups, match_id=match["match_id"])
                     for team_lineup in lineups.values():
-                        if any(
-                            p in players for p in team_lineup["player_name"].values
-                        ):
+                        if any(p in players for p in team_lineup["player_name"].values):
                             player_match_ids.add(match["match_id"])
                             break
                 matches = matches[matches["match_id"].isin(player_match_ids)]
@@ -729,12 +681,9 @@ class StatsBombClient:
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
             matches_played, position, shots, shots_on_target, goals,
-            total_xg, xg_per_shot. matches_played is the number of matches
-            in the open dataset that contributed to this row — StatsBomb's
-            open data doesn't cover every team's full season for every
-            competition/season, so a low matches_played relative to a
-            normal ~38-match La Liga season signals partial coverage
-            rather than a genuinely quiet season.
+            total_xg, xg_per_shot. matches_played counts matches in the
+            open dataset only, so a low count relative to a full season
+            (e.g. 38 for La Liga) means partial coverage, not a quiet season.
 
         Raises:
             DataNotFoundError: If no data is found for the given season(s).
@@ -803,7 +752,7 @@ class StatsBombClient:
             matches_played, position, passes, passes_completed,
             completion_rate, progressive_passes, line_breaking_passes,
             assists. matches_played is the number of matches in the open
-            dataset that contributed to this row — see
+            dataset that contributed to this row. See
             get_player_shooting_season for why that matters.
 
         Raises:
@@ -873,7 +822,7 @@ class StatsBombClient:
             DataFrame with columns: player, team, season_id, season_name,
             matches_played, position, and _DEFENSIVE_STAT_COLS.
             matches_played is the number of matches in the open dataset
-            that contributed to this row — see get_player_shooting_season
+            that contributed to this row. See get_player_shooting_season
             for why that matters.
 
         Raises:
@@ -922,13 +871,11 @@ class StatsBombClient:
 
         Returns:
             DataFrame with columns: player, team, season_id, season_name,
-            matches_played, position, goals, assists. matches_played is
-            the number of matches in the open dataset where the player
-            actually appeared (via sb.lineups), not just matches where
-            they scored or assisted — goals/assists are too sparse per
-            match for "contributed to this row" (get_player_shooting_season's
-            caveat) to mean actual appearances the way it does for shots/
-            passes/defensive actions.
+            matches_played, position, goals, assists. matches_played counts
+            matches the player actually appeared in (via sb.lineups), not
+            just matches they scored or assisted in, since goals/assists are
+            too sparse for that distinction to hold the way it does for
+            shots/passes/defensive actions.
 
         Raises:
             DataNotFoundError: If no data is found for the given season(s).
@@ -962,9 +909,7 @@ class StatsBombClient:
                 "assists",
             ]
         ]
-        return season_stats.sort_values(
-            ["season_id", "goals"], ascending=[True, False]
-        )
+        return season_stats.sort_values(["season_id", "goals"], ascending=[True, False])
 
     def get_shots_season(
         self,
@@ -975,12 +920,10 @@ class StatsBombClient:
     ) -> pd.DataFrame:
         """
         Fetch raw shot-level data across one or more seasons, optionally
-        filtered by team and/or player. Unlike the per-player season
-        methods, this returns one row per shot rather than aggregating —
-        feed it directly into shot-based analytics functions such as
-        get_match_xg_summary() for team-level totals, get_player_xg_ranking(),
-        or get_xg_overperformance(), which all work on any shots DataFrame
-        regardless of how many matches or seasons it spans.
+        filtered by team and/or player. Returns one row per shot (unlike the
+        per-player season methods) for feeding into shot-based analytics
+        functions like get_match_xg_summary(), get_player_xg_ranking(), or
+        get_xg_overperformance().
 
         Args:
             competition_id: StatsBomb competition ID.
