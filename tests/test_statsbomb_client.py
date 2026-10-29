@@ -258,6 +258,53 @@ def test_get_events_empty_response_raises_error(client):
 
 
 # ------------------------------------------------------------------ #
+# get_events/sb.lineups caching                                        #
+# ------------------------------------------------------------------ #
+
+
+def test_get_events_caches_across_calls_for_same_match(client, sample_events_df):
+    """Calling two different methods that both need events for the same
+    match_id must only fetch sb.events once on one client instance."""
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_events_df,
+    ) as mock_events:
+        client.get_shots(match_id=42)
+        client.get_passes(match_id=42)
+        assert mock_events.call_count == 1
+
+
+def test_get_events_cache_is_per_match_id(client, sample_events_df):
+    """Two distinct match_ids must each trigger their own fetch, not share
+    a single cache entry."""
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_events_df,
+    ) as mock_events:
+        client.get_events(match_id=1)
+        client.get_events(match_id=2)
+        assert mock_events.call_count == 2
+
+
+def test_get_lineups_caches_across_calls_for_same_match(
+    client, sample_events_df, sample_lineups
+):
+    """_aggregate_season_stats's player prefilter and
+    get_player_goals_assists_match both need sb.lineups; for the same
+    match_id on one client instance, it must only be fetched once."""
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_events_df,
+    ), patch(
+        "football_analytics.data.statsbomb_client.sb.lineups",
+        return_value=sample_lineups,
+    ) as mock_lineups:
+        client.get_player_goals_assists_match(match_id=42)
+        client._get_lineups(42)
+        assert mock_lineups.call_count == 1
+
+
+# ------------------------------------------------------------------ #
 # get_shots                                                             #
 # ------------------------------------------------------------------ #
 
@@ -489,6 +536,133 @@ def test_get_passes_missing_through_ball_column_defaults_false(client):
     ):
         result = client.get_passes(match_id=1)
         assert result.iloc[0]["pass_through_ball"] == False  # noqa: E712
+
+
+# ------------------------------------------------------------------ #
+# get_defensive_events_match                                           #
+# ------------------------------------------------------------------ #
+
+
+@pytest.fixture
+def sample_defensive_events_df():
+    """Fake events covering every _DEFENSIVE_EVENT_TYPES type plus a Tackle
+    Duel, for one team, and one event for an opposing team's player."""
+    return pd.DataFrame(
+        {
+            "type": [
+                "Duel",
+                "Interception",
+                "Clearance",
+                "Block",
+                "Ball Recovery",
+                "Dribbled Past",
+                "Foul Committed",
+                "Pressure",
+                "Pass",
+                "Interception",
+            ],
+            "player": [
+                "White",
+                "White",
+                "Saliba",
+                "Saliba",
+                "Odegaard",
+                "White",
+                "White",
+                "Xhaka",
+                "Odegaard",
+                "James",
+            ],
+            "position": ["Right Back"] * 7 + ["Center Midfield"] * 2 + ["Left Back"],
+            "team": ["Arsenal"] * 8 + ["Arsenal", "Chelsea"],
+            "minute": [10, 15, 20, 25, 30, 35, 40, 42, 45, 50],
+            "period": [1] * 10,
+            "duel_type": [
+                "Tackle",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+            "location": [[30.0, 40.0]] * 10,
+        }
+    )
+
+
+def test_get_defensive_events_match_returns_all_action_types(
+    client, sample_defensive_events_df
+):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_defensive_events_df,
+    ):
+        result = client.get_defensive_events_match(match_id=1)
+        # 9 defensive events total (10 rows minus the one Pass)
+        assert len(result) == 9
+        assert set(result["action_type"]) == {
+            "tackle",
+            "interception",
+            "clearance",
+            "block",
+            "ball_recovery",
+            "dribbled_past",
+            "foul_committed",
+            "pressure",
+        }
+
+
+def test_get_defensive_events_match_team_filter(client, sample_defensive_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_defensive_events_df,
+    ):
+        result = client.get_defensive_events_match(match_id=1, team="Chelsea")
+        assert len(result) == 1
+        assert result.iloc[0]["player"] == "James"
+
+
+def test_get_defensive_events_match_player_filter(client, sample_defensive_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_defensive_events_df,
+    ):
+        result = client.get_defensive_events_match(match_id=1, player="Saliba")
+        assert len(result) == 2
+        assert set(result["action_type"]) == {"clearance", "block"}
+
+
+def test_get_defensive_events_match_no_match_raises_error(
+    client, sample_defensive_events_df
+):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_defensive_events_df,
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_defensive_events_match(match_id=1, player="Nobody")
+
+
+def test_get_defensive_events_match_none_raises_error(client):
+    no_defensive_df = pd.DataFrame(
+        {
+            "type": ["Pass"],
+            "player": ["Odegaard"],
+            "team": ["Arsenal"],
+            "minute": [10],
+            "period": [1],
+        }
+    )
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=no_defensive_df,
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_defensive_events_match(match_id=1)
 
 
 # ------------------------------------------------------------------ #
@@ -1199,6 +1373,7 @@ def defensive_events_df():
                 "Foul Committed",
                 "Foul Committed",
                 "Bad Behaviour",
+                "Pressure",
             ],
             "player": [
                 "Saka",
@@ -1208,6 +1383,7 @@ def defensive_events_df():
                 "White",
                 "Palmer",
                 "Trossard",
+                "Rice",
             ],
             "position": [
                 "Right Wing",
@@ -1217,6 +1393,7 @@ def defensive_events_df():
                 "Right Back",
                 "Center Forward",
                 "Left Wing",
+                "Center Midfield",
             ],
             "team": [
                 "Arsenal",
@@ -1226,9 +1403,10 @@ def defensive_events_df():
                 "Arsenal",
                 "Chelsea",
                 "Arsenal",
+                "Arsenal",
             ],
-            "minute": [10, 20, 30, 40, 50, 60, 70],
-            "period": [1, 1, 1, 1, 1, 2, 2],
+            "minute": [10, 20, 30, 40, 50, 60, 70, 15],
+            "period": [1, 1, 1, 1, 1, 2, 2, 1],
             "foul_committed_card": [
                 None,
                 None,
@@ -1237,8 +1415,18 @@ def defensive_events_df():
                 "Second Yellow",
                 "Red Card",
                 None,
+                None,
             ],
-            "bad_behaviour_card": [None, None, None, None, None, None, "Yellow Card"],
+            "bad_behaviour_card": [
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "Yellow Card",
+                None,
+            ],
         }
     )
 
@@ -1252,6 +1440,17 @@ def test_get_player_defensive_match_counts_blocks(client, defensive_events_df):
 
     saka_row = result[result["player"] == "Saka"].iloc[0]
     assert saka_row["blocks"] == 1
+
+
+def test_get_player_defensive_match_counts_pressures(client, defensive_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=defensive_events_df,
+    ):
+        result = client.get_player_defensive_match(match_id=1)
+
+    rice_row = result[result["player"] == "Rice"].iloc[0]
+    assert rice_row["pressures"] == 1
 
 
 def test_get_player_defensive_match_counts_ball_recoveries(client, defensive_events_df):
@@ -1506,3 +1705,696 @@ def test_get_player_goals_assists_match_raises_when_no_lineup_data(
     ):
         with pytest.raises(DataNotFoundError):
             client.get_player_goals_assists_match(match_id=1)
+
+
+# ------------------------------------------------------------------ #
+# get_player_minutes_match                                             #
+# ------------------------------------------------------------------ #
+
+
+@pytest.fixture
+def sample_half_end_events():
+    """Minimal events DataFrame with Half End rows, for period-end lookup.
+    Period 2 runs 3:10 into stoppage time, so a full-match player's
+    minutes_played should reflect that, not a nominal 90."""
+    return pd.DataFrame(
+        {
+            "type": ["Half End", "Half End"],
+            "period": [1, 2],
+            "minute": [45, 93],
+            "second": [30, 10],
+        }
+    )
+
+
+@pytest.fixture
+def sample_lineups_with_minutes():
+    """sb.lineups position spells: Saka plays the full match, Odegaard is
+    subbed off at 60:00, Palmer is subbed on at 60:00."""
+    return {
+        "Arsenal": pd.DataFrame(
+            {
+                "player_name": ["Saka", "Odegaard"],
+                "positions": [
+                    [
+                        {
+                            "position": "Right Wing",
+                            "from": "00:00",
+                            "to": None,
+                            "from_period": 1,
+                            "to_period": None,
+                        }
+                    ],
+                    [
+                        {
+                            "position": "Center Midfield",
+                            "from": "00:00",
+                            "to": "60:00",
+                            "from_period": 1,
+                            "to_period": 2,
+                        }
+                    ],
+                ],
+            }
+        ),
+        "Chelsea": pd.DataFrame(
+            {
+                "player_name": ["Palmer", "Benched Sub"],
+                "positions": [
+                    [
+                        {
+                            "position": "Center Forward",
+                            "from": "60:00",
+                            "to": None,
+                            "from_period": 2,
+                            "to_period": None,
+                        }
+                    ],
+                    [],
+                ],
+            }
+        ),
+    }
+
+
+def test_get_player_minutes_match_full_match_player(
+    client, sample_half_end_events, sample_lineups_with_minutes
+):
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=sample_half_end_events,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=sample_lineups_with_minutes,
+        ),
+    ):
+        result = client.get_player_minutes_match(match_id=1)
+
+    saka = result[result["player"] == "Saka"].iloc[0]
+    assert saka["minutes_played"] == round(93 + 10 / 60, 1)
+
+
+def test_get_player_minutes_match_substitution_splits_minutes(
+    client, sample_half_end_events, sample_lineups_with_minutes
+):
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=sample_half_end_events,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=sample_lineups_with_minutes,
+        ),
+    ):
+        result = client.get_player_minutes_match(match_id=1)
+
+    odegaard = result[result["player"] == "Odegaard"].iloc[0]
+    palmer = result[result["player"] == "Palmer"].iloc[0]
+    assert odegaard["minutes_played"] == 60.0
+    assert palmer["minutes_played"] == round(93 + 10 / 60 - 60, 1)
+    # a bench player who never entered (empty positions) gets no row
+    assert "Benched Sub" not in result["player"].values
+
+
+def test_get_player_minutes_match_passes_match_id(
+    client, sample_half_end_events, sample_lineups_with_minutes
+):
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=sample_half_end_events,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=sample_lineups_with_minutes,
+        ) as mock_lineups,
+    ):
+        client.get_player_minutes_match(match_id=42)
+        mock_lineups.assert_called_once_with(match_id=42)
+
+
+def test_get_player_minutes_match_no_lineup_data_raises_error(
+    client, sample_half_end_events
+):
+    empty_lineups = {
+        "Arsenal": pd.DataFrame({"player_name": [], "positions": []}),
+    }
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=sample_half_end_events,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=empty_lineups,
+        ),
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_player_minutes_match(match_id=1)
+
+
+# ------------------------------------------------------------------ #
+# get_player_minutes_season                                            #
+# ------------------------------------------------------------------ #
+
+
+def test_get_player_minutes_season_sums_across_matches(
+    client, sample_competitions_df
+):
+    matches_by_season = {
+        1: pd.DataFrame(
+            {
+                "match_id": [101, 102],
+                "home_team": ["Arsenal", "Chelsea"],
+                "away_team": ["Chelsea", "Arsenal"],
+                "home_score": [2, 1],
+                "away_score": [1, 1],
+                "match_week": [1, 2],
+            }
+        )
+    }
+    half_end = pd.DataFrame(
+        {
+            "type": ["Half End", "Half End"],
+            "period": [1, 2],
+            "minute": [45, 90],
+            "second": [0, 0],
+        }
+    )
+    saka_full_match = {
+        "Arsenal": pd.DataFrame(
+            {
+                "player_name": ["Saka"],
+                "positions": [
+                    [
+                        {
+                            "position": "Right Wing",
+                            "from": "00:00",
+                            "to": None,
+                            "from_period": 1,
+                            "to_period": None,
+                        }
+                    ]
+                ],
+            }
+        ),
+        "Chelsea": pd.DataFrame({"player_name": [], "positions": []}),
+    }
+
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            side_effect=lambda competition_id, season_id: matches_by_season[
+                season_id
+            ],
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            return_value=half_end,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=saka_full_match,
+        ),
+    ):
+        result = client.get_player_minutes_season(
+            competition_id=11, season_ids=1, players=["Saka"]
+        )
+
+    assert len(result) == 1
+    saka_row = result.iloc[0]
+    assert saka_row["matches_played"] == 2
+    assert saka_row["minutes_played"] == pytest.approx(180.0)
+
+
+def test_get_player_minutes_season_empty_raises_error(client, sample_competitions_df):
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            return_value=pd.DataFrame(),
+        ),
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_player_minutes_season(competition_id=11, season_ids=1)
+
+
+# ------------------------------------------------------------------ #
+# get_team_possession_match                                            #
+# ------------------------------------------------------------------ #
+
+
+@pytest.fixture
+def sample_possession_events_df():
+    """Fake events with possession_team/duration for two teams; one row
+    has no possession_team, to confirm it's excluded rather than erroring."""
+    return pd.DataFrame(
+        {
+            "type": ["Pass", "Pass", "Pass", "Half Start"],
+            "possession_team": ["Arsenal", "Arsenal", "Chelsea", None],
+            "duration": [2.0, 3.0, 15.0, 1.0],
+        }
+    )
+
+
+def test_get_team_possession_match_correct_percentages(
+    client, sample_possession_events_df
+):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_possession_events_df,
+    ):
+        result = client.get_team_possession_match(match_id=1)
+
+    arsenal_row = result[result["team"] == "Arsenal"].iloc[0]
+    chelsea_row = result[result["team"] == "Chelsea"].iloc[0]
+    assert arsenal_row["possession_seconds"] == 5.0
+    assert arsenal_row["possession_percent"] == 25.0
+    assert chelsea_row["possession_percent"] == 75.0
+
+
+def test_get_team_possession_match_passes_match_id(client, sample_possession_events_df):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_possession_events_df,
+    ) as mock_events:
+        client.get_team_possession_match(match_id=42)
+        mock_events.assert_called_once_with(match_id=42)
+
+
+def test_get_team_possession_match_no_possession_data_raises_error(client):
+    no_possession_df = pd.DataFrame(
+        {"type": ["Half Start"], "possession_team": [None], "duration": [1.0]}
+    )
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=no_possession_df,
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_team_possession_match(match_id=1)
+
+
+# ------------------------------------------------------------------ #
+# get_team_possession_season                                           #
+# ------------------------------------------------------------------ #
+
+
+def test_get_team_possession_season_sums_across_matches(
+    client, sample_competitions_df
+):
+    matches_df = pd.DataFrame(
+        {
+            "match_id": [101, 102],
+            "home_team": ["Arsenal", "Chelsea"],
+            "away_team": ["Chelsea", "Arsenal"],
+            "home_score": [2, 1],
+            "away_score": [1, 1],
+            "match_week": [1, 2],
+        }
+    )
+    events_by_match = {
+        101: pd.DataFrame(
+            {
+                "type": ["Pass", "Pass"],
+                "possession_team": ["Arsenal", "Chelsea"],
+                "duration": [6.0, 4.0],
+            }
+        ),
+        102: pd.DataFrame(
+            {
+                "type": ["Pass", "Pass"],
+                "possession_team": ["Arsenal", "Chelsea"],
+                "duration": [3.0, 7.0],
+            }
+        ),
+    }
+
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            return_value=matches_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            side_effect=lambda match_id: events_by_match[match_id],
+        ),
+    ):
+        result = client.get_team_possession_season(competition_id=11, season_ids=1)
+
+    arsenal_row = result[result["team"] == "Arsenal"].iloc[0]
+    # Arsenal: 6+3=9 seconds out of (6+4)+(3+7)=20 total -> 45.0%
+    assert arsenal_row["possession_seconds"] == 9.0
+    assert arsenal_row["possession_percent"] == 45.0
+    assert arsenal_row["matches_played"] == 2
+
+
+def test_get_team_possession_season_empty_raises_error(client, sample_competitions_df):
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            return_value=pd.DataFrame(),
+        ),
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_team_possession_season(competition_id=11, season_ids=1)
+
+
+# ------------------------------------------------------------------ #
+# get_player_ball_carrying_match                                       #
+# ------------------------------------------------------------------ #
+
+
+@pytest.fixture
+def sample_ball_carrying_events_df():
+    """Two dribbles for Saka (1 complete, 1 incomplete), one complete
+    dribble for Odegaard, a foul won each for Saka and White (White has
+    no dribbles at all, to exercise the outer merge/zero-attempts case)."""
+    return pd.DataFrame(
+        {
+            "type": ["Dribble", "Dribble", "Dribble", "Foul Won", "Foul Won", "Pass"],
+            "player": ["Saka", "Saka", "Odegaard", "Saka", "White", "Odegaard"],
+            "position": [
+                "Right Wing",
+                "Right Wing",
+                "Center Midfield",
+                "Right Wing",
+                "Right Back",
+                "Center Midfield",
+            ],
+            "team": ["Arsenal"] * 6,
+            "dribble_outcome": [
+                "Complete",
+                "Incomplete",
+                "Complete",
+                None,
+                None,
+                None,
+            ],
+        }
+    )
+
+
+def test_get_player_ball_carrying_match_correct_stats(
+    client, sample_ball_carrying_events_df
+):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_ball_carrying_events_df,
+    ):
+        result = client.get_player_ball_carrying_match(match_id=1)
+
+    saka_row = result[result["player"] == "Saka"].iloc[0]
+    assert saka_row["dribbles_attempted"] == 2
+    assert saka_row["dribbles_completed"] == 1
+    assert saka_row["dribble_success_rate"] == 50.0
+    assert saka_row["fouls_won"] == 1
+
+
+def test_get_player_ball_carrying_match_zero_attempts_gives_zero_rate(
+    client, sample_ball_carrying_events_df
+):
+    """White only has a foul won, no dribble attempts at all, dividing
+    by zero must not raise or produce NaN."""
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_ball_carrying_events_df,
+    ):
+        result = client.get_player_ball_carrying_match(match_id=1)
+
+    white_row = result[result["player"] == "White"].iloc[0]
+    assert white_row["dribbles_attempted"] == 0
+    assert white_row["dribble_success_rate"] == 0.0
+    assert white_row["fouls_won"] == 1
+
+
+def test_get_player_ball_carrying_match_passes_match_id(
+    client, sample_ball_carrying_events_df
+):
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=sample_ball_carrying_events_df,
+    ) as mock_events:
+        client.get_player_ball_carrying_match(match_id=42)
+        mock_events.assert_called_once_with(match_id=42)
+
+
+def test_get_player_ball_carrying_match_empty_raises_error(client):
+    no_dribbles_df = pd.DataFrame(
+        {"type": ["Pass"], "player": ["Odegaard"], "team": ["Arsenal"]}
+    )
+    with patch(
+        "football_analytics.data.statsbomb_client.sb.events",
+        return_value=no_dribbles_df,
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_player_ball_carrying_match(match_id=1)
+
+
+# ------------------------------------------------------------------ #
+# get_player_ball_carrying_season                                      #
+# ------------------------------------------------------------------ #
+
+
+def test_get_player_ball_carrying_season_sums_across_matches(
+    client, sample_competitions_df
+):
+    matches_df = pd.DataFrame(
+        {
+            "match_id": [101, 102],
+            "home_team": ["Arsenal", "Chelsea"],
+            "away_team": ["Chelsea", "Arsenal"],
+            "home_score": [2, 1],
+            "away_score": [1, 1],
+            "match_week": [1, 2],
+        }
+    )
+    events_by_match = {
+        101: pd.DataFrame(
+            {
+                "type": ["Dribble", "Dribble"],
+                "player": ["Saka", "Saka"],
+                "position": ["Right Wing", "Right Wing"],
+                "team": ["Arsenal", "Arsenal"],
+                "dribble_outcome": ["Complete", "Incomplete"],
+            }
+        ),
+        102: pd.DataFrame(
+            {
+                "type": ["Dribble"],
+                "player": ["Saka"],
+                "position": ["Right Wing"],
+                "team": ["Arsenal"],
+                "dribble_outcome": ["Complete"],
+            }
+        ),
+    }
+    saka_lineup = pd.DataFrame(
+        {"player_name": ["Saka"], "positions": [[{"position": "Right Wing"}]]}
+    )
+    lineups_by_match = {
+        101: {"Arsenal": saka_lineup},
+        102: {"Arsenal": saka_lineup},
+    }
+
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            return_value=matches_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            side_effect=lambda match_id: lineups_by_match[match_id],
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.events",
+            side_effect=lambda match_id: events_by_match[match_id],
+        ),
+    ):
+        result = client.get_player_ball_carrying_season(
+            competition_id=11, season_ids=1, players=["Saka"]
+        )
+
+    saka_row = result.iloc[0]
+    assert saka_row["dribbles_attempted"] == 3
+    assert saka_row["dribbles_completed"] == 2
+    assert saka_row["matches_played"] == 2
+
+
+def test_get_player_ball_carrying_season_empty_raises_error(
+    client, sample_competitions_df
+):
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            return_value=pd.DataFrame(),
+        ),
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_player_ball_carrying_season(competition_id=11, season_ids=1)
+
+
+# ------------------------------------------------------------------ #
+# get_player_display_names                                             #
+# ------------------------------------------------------------------ #
+
+
+def test_get_player_display_names_uses_nickname_with_fallback(
+    client, sample_competitions_df
+):
+    matches_df = pd.DataFrame(
+        {
+            "match_id": [101],
+            "home_team": ["Arsenal"],
+            "away_team": ["Chelsea"],
+            "home_score": [2],
+            "away_score": [1],
+            "match_week": [1],
+        }
+    )
+    lineups_101 = {
+        "Arsenal": pd.DataFrame(
+            {
+                "player_name": [
+                    "Lionel Andrés Messi Cuccittini",
+                    "Ivan Rakitić",
+                ],
+                "player_nickname": ["Lionel Messi", None],
+            }
+        ),
+    }
+
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            return_value=matches_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=lineups_101,
+        ),
+    ):
+        result = client.get_player_display_names(competition_id=11, season_ids=1)
+
+    messi_row = result[result["player"] == "Lionel Andrés Messi Cuccittini"].iloc[0]
+    rakitic_row = result[result["player"] == "Ivan Rakitić"].iloc[0]
+    assert messi_row["display_name"] == "Lionel Messi"
+    assert rakitic_row["display_name"] == "Ivan Rakitić"
+
+
+def test_get_player_display_names_dedupes_across_matches(
+    client, sample_competitions_df
+):
+    matches_df = pd.DataFrame(
+        {
+            "match_id": [101, 102],
+            "home_team": ["Arsenal", "Arsenal"],
+            "away_team": ["Chelsea", "Liverpool"],
+            "home_score": [2, 1],
+            "away_score": [1, 1],
+            "match_week": [1, 2],
+        }
+    )
+    saka_lineup = {
+        "Arsenal": pd.DataFrame(
+            {"player_name": ["Bukayo Saka"], "player_nickname": ["Saka"]}
+        ),
+    }
+
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            return_value=matches_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=saka_lineup,
+        ),
+    ):
+        result = client.get_player_display_names(competition_id=11, season_ids=1)
+
+    assert len(result[result["player"] == "Bukayo Saka"]) == 1
+
+
+def test_get_player_display_names_missing_nickname_column(
+    client, sample_competitions_df
+):
+    matches_df = pd.DataFrame(
+        {
+            "match_id": [101],
+            "home_team": ["Arsenal"],
+            "away_team": ["Chelsea"],
+            "home_score": [2],
+            "away_score": [1],
+            "match_week": [1],
+        }
+    )
+    no_nickname_lineup = {
+        "Arsenal": pd.DataFrame({"player_name": ["Bukayo Saka"]}),
+    }
+
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            return_value=matches_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.lineups",
+            return_value=no_nickname_lineup,
+        ),
+    ):
+        result = client.get_player_display_names(competition_id=11, season_ids=1)
+
+    assert result.iloc[0]["display_name"] == "Bukayo Saka"
+
+
+def test_get_player_display_names_empty_raises_error(client, sample_competitions_df):
+    with (
+        patch(
+            "football_analytics.data.statsbomb_client.sb.competitions",
+            return_value=sample_competitions_df,
+        ),
+        patch(
+            "football_analytics.data.statsbomb_client.sb.matches",
+            return_value=pd.DataFrame(),
+        ),
+    ):
+        with pytest.raises(DataNotFoundError):
+            client.get_player_display_names(competition_id=11, season_ids=1)
