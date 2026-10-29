@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LaLiga 2015/16 In Depth</title>
+  <meta name="description" content="A closer look into the 2015/16 LaLiga season: full standings, team and player comparisons, and match-by-match maps, built on precomputed StatsBomb open data." />
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/4.0.0/plotly-basic.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <span class="brand">LaLiga 2015/16 In Depth</span>
+      <a class="header-link" href="https://github.com/leventdusunceli/football_analytics" target="_blank" rel="noopener">View on GitHub</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="section" id="overview">
+      <div class="section-inner">
+        <h1>LaLiga 2015/16 In Depth</h1>
+        <p class="intro-text">
+          A closer look into the 2015/16 LaLiga statistics using the data
+          analysis pipeline of the
+          <a class="pkg-badge" href="https://github.com/leventdusunceli/football_analytics" target="_blank" rel="noopener"><code>football-analytics</code></a>
+          package.
+        </p>
+
+        <div class="card-row overview-row">
+          <div class="card standings-card">
+            <h3>Full standings</h3>
+            <div id="standings-table" class="scroll-table"></div>
+          </div>
+          <div class="leaderboard-stack">
+            <div class="card">
+              <h3>Top scorers</h3>
+              <ul class="stat-list" id="top-scorers"></ul>
+            </div>
+            <div class="card">
+              <h3>Top assists</h3>
+              <ul class="stat-list" id="top-assists"></ul>
+            </div>
+            <div class="card">
+              <h3>Clean sheets</h3>
+              <ul class="stat-list" id="top-clean-sheets"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt">
+      <div class="section-inner">
+        <div class="controls mode-controls">
+          <label for="mode-select">Explore:</label>
+          <select id="mode-select">
+            <option value="team">Team level comparison</option>
+            <option value="player">Player level comparison</option>
+            <option value="match">Match level comparison</option>
+          </select>
+        </div>
+        <p id="load-status" class="visually-hidden" role="status" aria-live="polite"></p>
+
+        <div id="panel-team" class="panel">
+          <div class="panel-intro">
+            <p>Compare season totals for any LaLiga teams, across all 380 matches of 2015/16. Tick teams to add or remove them; every chart and the table below update together.</p>
+            <p class="panel-intro-label">Comparable statistics:</p>
+            <ul>
+              <li>Goals vs. <button type="button" class="term" data-term="xG">expected goals (xG)</button></li>
+              <li><button type="button" class="term" data-term="Possession">Possession</button></li>
+              <li>Possession vs. <button type="button" class="term" data-term="Shots on target">shots on target</button></li>
+              <li>Assists vs. league position</li>
+              <li><button type="button" class="term" data-term="Pressures">Pressures</button> and <button type="button" class="term" data-term="Fouls won">fouls won</button></li>
+            </ul>
+          </div>
+          <div class="controls" id="team-filter"></div>
+          <div class="chart-grid">
+            <div class="card">
+              <h3>Goals vs. expected goals (xG)</h3>
+              <div id="team-goals-xg-chart" class="chart"></div>
+            </div>
+            <div class="card">
+              <h3>Average possession %</h3>
+              <div id="team-possession-chart" class="chart"></div>
+            </div>
+            <div class="card">
+              <h3>Possession vs. shots on target</h3>
+              <div id="team-possession-sot-chart" class="chart"></div>
+            </div>
+            <div class="card">
+              <h3>Assists vs. league position</h3>
+              <div id="team-assists-chart" class="chart"></div>
+            </div>
+            <div class="card">
+              <h3>Pressures and fouls won</h3>
+              <div id="team-pressures-chart" class="chart"></div>
+              <p class="chart-note"><button type="button" class="term" data-term="Pressures">Pressures</button> measure defensive intensity: closing down the opponent on the ball, not a tackle or interception itself.</p>
+            </div>
+          </div>
+          <div class="card table-card">
+            <h3>Selected teams at a glance</h3>
+            <div id="team-table" class="table-scroll"></div>
+          </div>
+        </div>
+
+        <div id="panel-player" class="panel" hidden>
+          <div class="panel-intro">
+            <p>Compare one player's 2015/16 season, or two side by side. For each player, pick a team, then a player from that team. Every player who appeared that season is included.</p>
+            <p class="panel-intro-label">Comparable statistics:</p>
+            <ul>
+              <li>Games played and average minutes per game</li>
+              <li>Goals, assists, shots, <button type="button" class="term" data-term="Shot-goal rate">shot-goal rate</button> and <button type="button" class="term" data-term="xG">xG</button></li>
+              <li>Passes, <button type="button" class="term" data-term="Completion %">completion %</button>, <button type="button" class="term" data-term="Progressive passes">progressive</button> and <button type="button" class="term" data-term="Line-breaking passes">line-breaking</button> passes</li>
+              <li>Dribbles and <button type="button" class="term" data-term="Fouls won">fouls won</button></li>
+              <li>Tackles, interceptions, <button type="button" class="term" data-term="Pressures">pressures</button> and other defensive actions</li>
+              <li>Season-over-season trend for nine notable players (2014/15 → 2015/16)</li>
+            </ul>
+          </div>
+          <div class="player-slots">
+            <fieldset class="controls player-slot">
+              <legend>Player 1</legend>
+              <label>Team <select id="player-1-team"></select></label>
+              <label>Player <select id="player-1-select"></select></label>
+            </fieldset>
+            <fieldset class="controls player-slot">
+              <legend>Player 2 <span class="legend-note">(optional)</span></legend>
+              <label>Team <select id="player-2-team"></select></label>
+              <label>Player <select id="player-2-select"></select></label>
+            </fieldset>
+          </div>
+          <div id="player-summary" class="table-scroll"></div>
+          <div class="chart-grid">
+            <div class="card">
+              <h3>Shots vs. goals</h3>
+              <div id="player-shooting-chart" class="chart"></div>
+              <p class="chart-note">Bubble size: <button type="button" class="term" data-term="xG per shot">xG per shot</button>.</p>
+            </div>
+            <div class="card">
+              <h3>Progressive passes vs. completion %</h3>
+              <div id="player-passing-chart" class="chart"></div>
+              <p class="chart-note">Bubble size: assists.</p>
+            </div>
+            <div class="card">
+              <h3>Dribbles attempted vs. success rate</h3>
+              <div id="player-dribbling-chart" class="chart"></div>
+              <p class="chart-note">Bubble size: <button type="button" class="term" data-term="Fouls won">fouls won</button>.</p>
+            </div>
+            <div class="card">
+              <h3>Defensive actions</h3>
+              <div id="player-defensive-chart" class="chart"></div>
+            </div>
+          </div>
+
+          <h3 class="subsection-title">Season-over-season trend (2014/15 → 2015/16)</h3>
+          <p class="section-intro">Nine notable players only, not the full roster: StatsBomb's open data is heavily Barcelona-centric outside the full 2015/16 season, so only five of the nine have enough matches in both seasons for a trustworthy trend line. The other four still show both seasons' points, just unconnected and labeled "sparse coverage".</p>
+          <div class="controls">
+            <label for="trend-stat">Stat:</label>
+            <select id="trend-stat">
+              <option value="goals_per90">Goals per 90</option>
+              <option value="total_xg_per90">xG per 90</option>
+              <option value="assists_per90">Assists per 90</option>
+            </select>
+          </div>
+          <div id="trend-chart" class="chart"></div>
+        </div>
+
+        <div id="panel-match" class="panel" hidden>
+          <div class="panel-intro">
+            <p>Look inside a single 2015/16 match. Pick a team, one of its 38 matches, then optionally one of its players. Every marker is a real event from that match; tap or hover one for details.</p>
+            <p class="panel-intro-label">What you can see:</p>
+            <ul>
+              <li>Shot map: every shot with its <button type="button" class="term" data-term="xG">xG</button>, goals highlighted</li>
+              <li>Passing map: complete and incomplete passes, filterable to <button type="button" class="term" data-term="Progressive passes">progressive</button>, <button type="button" class="term" data-term="Line-breaking passes">line-breaking</button> or assists</li>
+              <li>Defensive actions map: tackles, interceptions, <button type="button" class="term" data-term="Clearances">clearances</button>, <button type="button" class="term" data-term="Pressures">pressures</button> and more</li>
+            </ul>
+          </div>
+          <div class="controls">
+            <label for="match-team-select">Team:</label>
+            <select id="match-team-select"></select>
+            <label for="match-fixture-select">Match:</label>
+            <select id="match-fixture-select"></select>
+            <label for="match-player-select">Player:</label>
+            <select id="match-player-select"></select>
+          </div>
+
+          <div class="pitch-row">
+            <div class="card">
+              <h3>Shot map</h3>
+              <svg id="shot-map" class="pitch" viewBox="0 0 120 80"></svg>
+              <div class="legend" id="shot-legend"></div>
+              <p class="map-stats" id="shot-stats"></p>
+            </div>
+            <div class="card">
+              <h3>Passing map</h3>
+              <div class="controls" id="passing-filter-toggles"></div>
+              <p class="direction-hint">Attacking direction<span class="direction-arrow" aria-hidden="true"></span></p>
+              <svg id="passing-map" class="pitch" viewBox="0 0 120 80"></svg>
+              <div class="legend" id="passing-legend"></div>
+              <p class="map-stats" id="passing-stats"></p>
+            </div>
+          </div>
+
+          <div class="card defensive-map-card">
+            <h3>Defensive actions</h3>
+            <div class="controls" id="defensive-action-toggles"></div>
+            <p class="direction-hint pitch-constrained">Attacking direction<span class="direction-arrow" aria-hidden="true"></span></p>
+            <svg id="defensive-map" class="pitch pitch-constrained" viewBox="0 0 120 80"></svg>
+            <div class="legend" id="defensive-legend"></div>
+            <p class="chart-note">Colors group the actions: <span class="key-dot" style="background:#1d4ed8"></span>winning the ball, <span class="key-dot" style="background:#17a193"></span>protecting the goal, <span class="key-dot" style="background:#910884"></span>pressing, <span class="key-dot" style="background:#e90c0c"></span>beaten or fouled. Each action also has its own shape.</p>
+            <p class="map-stats" id="defensive-stats"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="methodology">
+      <div class="section-inner">
+        <h2>Methodology &amp; scope</h2>
+        <ol class="flow" aria-label="How the data gets to this page">
+          <li class="flow-step"><strong>StatsBomb</strong><span>open event data</span></li>
+          <li class="flow-step"><strong>football-analytics</strong><span>data/ → analytics/ (the Python package)</span></li>
+          <li class="flow-step"><strong>scripts/data_pipeline</strong><span>precomputed JSON</span></li>
+          <li class="flow-step flow-step-end"><strong>This site</strong><span>static HTML/JS</span></li>
+        </ol>
+        <ul class="methodology-list">
+          <li>Every number on this page is precomputed from <a href="https://github.com/statsbomb/open-data" target="_blank" rel="noopener">StatsBomb's open data</a>, no API calls happen once this page has loaded.</li>
+          <li><code>FootballDataClient</code> (which needs a football-data.org API key) is intentionally excluded from this web demo, to keep the deployed site free of secrets and external calls, though the underlying <code>football-analytics</code> package supports it for programmatic use.</li>
+          <li>The full 2015/16 LaLiga season: every team, every player who appeared, all 380 matches. A second season (2014/15) feeds a small season-over-season trend for nine notable players only, since StatsBomb's open data is heavily Barcelona-centric outside the full 2015/16 season.</li>
+          <li>Player names are shown as StatsBomb's own short nickname where it has one (e.g. "Lionel Messi"), falling back to their full name otherwise.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

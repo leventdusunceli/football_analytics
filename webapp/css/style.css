@@ -1,0 +1,773 @@
+:root {
+  --color-bg: #ffffff;
+  --color-bg-alt: #f6f7f9;
+  --color-text: #1b1f24;
+  --color-text-muted: #5b6471;
+  --color-border: #e2e5ea;
+  --color-accent: #1d4ed8;
+  --color-accent-soft: #e8edfc;
+  --color-card-bg: #ffffff;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  background: var(--color-bg);
+  line-height: 1.5;
+}
+
+a {
+  color: var(--color-accent);
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.site-header-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.header-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 4px;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: 0.88rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.header-link:hover {
+  color: var(--color-accent);
+}
+
+.pkg-badge {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.pkg-badge code {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-size: 0.92em;
+}
+
+.section {
+  padding: 48px 0;
+}
+
+.section-alt {
+  background: var(--color-bg-alt);
+}
+
+.section-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+h1 {
+  font-size: 1.9rem;
+  margin: 0 0 10px;
+}
+
+h2 {
+  font-size: 1.5rem;
+  margin: 0 0 10px;
+}
+
+h3 {
+  font-size: 1.05rem;
+  margin: 0 0 10px;
+}
+
+.subsection-title {
+  margin-top: 36px;
+}
+
+.intro-text,
+.section-intro {
+  color: var(--color-text-muted);
+  max-width: 68ch;
+}
+
+/* min(…, 100%) lets a column shrink below its preferred width on narrow
+   phones instead of pushing the page wider than the screen. */
+.card-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.card {
+  position: relative;
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+/* Grid items default to min-width: auto, which made the standings card
+   grow to its table's width instead of letting the table scroll inside. */
+.card-row > *,
+.chart-grid > *,
+.pitch-row > * {
+  min-width: 0;
+}
+
+/* Loading: a panel's first load shows a placeholder over its empty cards
+   (only if it takes over 200ms, so fast loads don't flash); later
+   refreshes just dim what's already drawn, so nothing jumps. */
+[data-loading="first"] .card::after {
+  content: "Loading…";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  background: linear-gradient(90deg, #f1f3f6 0%, #e6e9ee 50%, #f1f3f6 100%) 0 0 / 200% 100%;
+  opacity: 0;
+  animation: skeleton-in 0.2s ease 0.2s forwards, skeleton-shimmer 1.4s linear 0.2s infinite;
+}
+
+[data-loading="refresh"] .card {
+  opacity: 0.55;
+  transition: opacity 0.15s ease 0.15s;
+}
+
+@keyframes skeleton-in {
+  to {
+    opacity: 0.95;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-loading="first"] .card::after {
+    animation: skeleton-in 0.01s linear 0.2s forwards;
+  }
+
+  [data-loading="refresh"] .card {
+    transition: none;
+  }
+}
+
+.overview-row {
+  grid-template-columns: 2fr 1fr;
+  align-items: start;
+}
+
+.leaderboard-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.leaderboard-stack .card h3 {
+  margin-bottom: 4px;
+}
+
+.mode-controls {
+  margin-top: 0;
+}
+
+.mode-controls select {
+  font-size: 1rem;
+  padding: 8px 10px;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.chart {
+  width: 100%;
+  min-height: 320px;
+}
+
+.chart-small {
+  min-height: 220px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px 12px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+  font-size: 0.9rem;
+}
+
+.controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* Checkbox/radio filters as pill toggles: the whole pill is the click/tap
+   target (the label wraps the input), comfortably above the 24px minimum. */
+.controls label:has(> input[type="checkbox"]),
+.controls label:has(> input[type="radio"]) {
+  min-height: 34px;
+  padding: 4px 12px 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-card-bg);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.controls label:has(> input:checked) {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.controls label:has(> input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.controls input[type="checkbox"],
+.controls input[type="radio"] {
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.controls select,
+.controls input[list] {
+  min-height: 36px;
+  max-width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+@media (pointer: coarse) {
+  .controls label:has(> input[type="checkbox"]),
+  .controls label:has(> input[type="radio"]),
+  .controls select,
+  .controls input[list],
+  .header-link {
+    min-height: 44px;
+  }
+}
+
+.pitch-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+svg.pitch {
+  width: 100%;
+  height: auto;
+  background: #fafbfc;
+  border-radius: 6px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.legend-symbol {
+  width: 13px;
+  height: 13px;
+}
+
+.legend-line {
+  width: 22px;
+  height: 10px;
+}
+
+/* Fixed-width digits so numbers line up down a column. */
+table.standings,
+table.compare,
+.stat-list {
+  font-variant-numeric: tabular-nums;
+}
+
+#standings-table.scroll-table {
+  overflow: auto;
+  scrollbar-gutter: stable;
+  max-height: 360px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+table.standings {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+table.standings th,
+table.standings td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+table.standings th {
+  position: sticky;
+  top: 0;
+  background: var(--color-card-bg);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+table.standings td.numeric,
+table.standings th.numeric {
+  text-align: right;
+}
+
+/* Room for macOS overlay scrollbars, which float over the last column. */
+table.standings th:last-child,
+table.standings td:last-child {
+  padding-right: 18px;
+}
+
+/* Comparison tables size to their content instead of stretching across
+   the page, so each value sits close to its label. */
+.table-scroll {
+  overflow-x: auto;
+  margin-top: 16px;
+}
+
+table.compare {
+  width: auto;
+  max-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+table.compare th,
+table.compare td {
+  text-align: left;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+table.compare th:first-child {
+  padding-left: 0;
+}
+
+table.compare thead th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  vertical-align: bottom;
+}
+
+table.compare tbody th {
+  font-weight: 400;
+}
+
+table.compare td.numeric,
+table.compare th.numeric {
+  text-align: right;
+}
+
+table.compare .group-row th {
+  padding-top: 14px;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Phones: let labels and names wrap so both players' columns fit on
+   screen without sideways scrolling; numbers stay on one line. */
+@media (max-width: 520px) {
+  table.compare {
+    width: 100%;
+    font-size: 0.85rem;
+  }
+
+  table.compare th,
+  table.compare td {
+    padding: 6px 6px;
+    white-space: normal;
+  }
+
+  table.compare td.numeric {
+    white-space: nowrap;
+  }
+}
+
+.compare-team {
+  display: block;
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+.key-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: baseline;
+}
+
+.table-card {
+  margin-top: 16px;
+}
+
+.table-card .table-scroll {
+  margin-top: 4px;
+}
+
+/* The team table has too many columns for a phone; it scrolls sideways
+   inside its card, with the Team column pinned so rows keep their label. */
+.table-card table.compare tr > th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding-right: 10px;
+  background: var(--color-card-bg);
+}
+
+.table-card table.compare tbody th {
+  white-space: nowrap;
+}
+
+/* Stat terms: buttons (so Tab and tap reach them) that look like text
+   with a dotted underline; the explanation appears in the tooltip. */
+.term {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+.term:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Panel explanations */
+.panel-intro {
+  max-width: 72ch;
+  margin-bottom: 8px;
+  color: var(--color-text-muted);
+}
+
+.panel-intro p {
+  margin: 0 0 8px;
+}
+
+.panel-intro .panel-intro-label {
+  margin: 12px 0 4px;
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.panel-intro ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.panel-intro li {
+  margin-bottom: 2px;
+}
+
+/* Player panel: one group of controls per player */
+.player-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 12px 16px;
+  margin: 16px 0 0;
+}
+
+.player-slot {
+  margin: 0;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-card-bg);
+}
+
+.player-slot legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+/* Team and Player always stack, so both boxes look the same at any width. */
+.player-slot {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.player-slot label {
+  display: grid;
+  grid-template-columns: 4.5em 1fr;
+  align-items: center;
+}
+
+.player-slot select {
+  width: 100%;
+  min-width: 0;
+}
+
+.legend-note {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+/* Attacking-direction strip above a pitch map */
+.direction-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.direction-arrow {
+  position: relative;
+  flex: 1;
+  height: 2px;
+  background: var(--color-text-muted);
+}
+
+.direction-arrow::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: -4px;
+  border-left: 8px solid var(--color-text-muted);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+.chart-note {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  margin: 8px 0 0;
+}
+
+.map-stats {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin: 8px 0 0;
+}
+
+.pitch-constrained {
+  max-width: 560px;
+  display: block;
+  margin: 0 auto;
+}
+
+.direction-hint.pitch-constrained {
+  display: flex;
+}
+
+.defensive-map-card {
+  max-width: 700px;
+  margin: 16px auto 0;
+}
+
+/* Methodology flow: a row of boxes with arrows on wide screens, a column
+   with downward arrows on phones, readable at any width. */
+.flow {
+  display: flex;
+  align-items: stretch;
+  gap: 32px;
+  list-style: none;
+  margin: 10px 0 24px;
+  padding: 0;
+}
+
+.flow-step {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-height: 64px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-accent);
+  border-radius: 8px;
+  background: var(--color-accent-soft);
+  text-align: center;
+}
+
+.flow-step span {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.flow-step-end {
+  border-color: #b45309;
+  background: #fdf0e3;
+}
+
+.flow-step:not(:last-child)::after {
+  content: "→";
+  position: absolute;
+  right: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  font-size: 1.2rem;
+}
+
+@media (max-width: 720px) {
+  .flow {
+    flex-direction: column;
+    gap: 26px;
+  }
+
+  .flow-step:not(:last-child)::after {
+    content: "↓";
+    right: auto;
+    left: 50%;
+    top: auto;
+    bottom: -24px;
+    transform: translateX(-50%);
+  }
+}
+
+.stat-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 0.9rem;
+}
+
+.stat-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.stat-list li span:first-child {
+  min-width: 0;
+}
+
+.stat-list li:last-child {
+  border-bottom: none;
+}
+
+.methodology-list {
+  max-width: 72ch;
+  padding-left: 20px;
+}
+
+.methodology-list li {
+  margin-bottom: 10px;
+  color: var(--color-text-muted);
+}
+
+.tooltip {
+  position: fixed;
+  pointer-events: none;
+  background: #1b1f24;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  max-width: 220px;
+  z-index: 100;
+}
+
+.tooltip[hidden] {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .overview-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  h1 {
+    font-size: 1.5rem;
+  }
+}
