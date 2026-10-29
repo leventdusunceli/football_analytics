@@ -1,0 +1,74 @@
+name: Deploy web demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "webapp/**"
+      - "scripts/data_pipeline/**"
+      - "football_analytics/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # StatsBomb's open data never changes once published, so the raw
+      # match/lineup pulls can be cached indefinitely; only a change to
+      # the pipeline's scope (config.py) should invalidate this.
+      - name: Cache StatsBomb pipeline data
+        uses: actions/cache@v4
+        with:
+          path: .cache/statsbomb
+          key: statsbomb-cache-${{ hashFiles('scripts/data_pipeline/config.py') }}
+
+      - name: Build static data
+        run: python -m scripts.data_pipeline.build
+
+      # GitHub Pages lets browsers cache files for 10 minutes, so right
+      # after a deploy a visitor could get a new app.js with an old
+      # pitch.js and a blank page. Tagging every local JS/CSS reference
+      # with the commit makes each deploy's files new URLs.
+      - name: Stamp asset versions
+        run: |
+          v="${GITHUB_SHA::8}"
+          sed -i -E "s#from \"\./([a-z_]+)\.js\"#from \"./\1.js?v=$v\"#g" webapp/js/*.js
+          sed -i -E "s#(src|href)=\"(js/app\.js|css/style\.css)\"#\1=\"\2?v=$v\"#g" webapp/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: webapp
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
